@@ -2,7 +2,7 @@
 #SBATCH --job-name=worker
 #SBATCH --output=logs/out.%j
 #SBATCH --error=logs/err.%j
-#SBATCH --time=00:10:00
+#SBATCH --time=01:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=40G

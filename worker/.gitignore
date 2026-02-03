@@ -2,3 +2,4 @@
 logs/
 .env
 worker/**/*.py[cod]
+worker.sif
