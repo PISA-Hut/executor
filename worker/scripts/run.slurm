@@ -22,7 +22,7 @@ echo "CPU Info:"
 echo
 
 echo "Start Time:    $(date)"
-apptainer exec --writable-tmpfs worker.sif bash scripts/entry.bash
+uv run -m worker
 if [ $? -ne 0 ]; then
     echo "Worker execution failed."
     exit 1

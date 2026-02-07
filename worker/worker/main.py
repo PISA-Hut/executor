@@ -1,8 +1,7 @@
 import dotenv
 from pprint import pprint
 from typing import Any
-
-from sv.runner import Runner
+import grpc
 
 from worker.manager_client import ManagerClient
 from worker.system import collect_worker_identity
@@ -50,16 +49,7 @@ def main():
     pprint(spec)
 
     print(f"Claimed task: {task_id}")
-    runner = Runner(
-        task_spec=spec["task"],
-        runtime_spec=spec["runtime"],
-        sim_spec=spec["simulator"],
-        av_spec=spec["av"],
-        sampler_spec=spec["sampler"],
-        scenario_spec=spec["scenario"],
-        map_spec=spec["map"],
-    )
-    runner.exec()
+
     print(f"Completed task: {task_id}")
     client.complete_task(task_id)
 
