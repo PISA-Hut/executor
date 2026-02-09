@@ -61,19 +61,18 @@ class ApptainerServiceConfig:
         self.extra_ports = extra_ports or {}
         self.extra_args = extra_args or []
 
-    def get_start_command(self, ports: dict[str, int]) -> list[str]:
+    def get_start_command(self, instance_name: str, ports: dict[str, int]) -> list[str]:
         """
         Get the command to start this service.
 
         Args:
+            instance_name: Name for the Apptainer instance
             ports: Dict mapping env var names to allocated ports (includes "PORT" and any extra ports)
 
         Returns:
             Command list for starting the service
         """
-        cmd = ["apptainer", "run"]
-
-        cmd.extend(["--containall"])
+        cmd = ["apptainer", "instance", "start"]
 
         # Pass all allocated ports via environment variables
         for env_var, port in ports.items():
@@ -82,10 +81,23 @@ class ApptainerServiceConfig:
         # Add any extra arguments
         cmd.extend(self.extra_args)
 
-        # Add the SIF file
-        cmd.append(self.sif_path)
+        # Add the SIF file and instance name
+        cmd.extend([self.sif_path, instance_name])
 
         return cmd
+
+    @staticmethod
+    def get_stop_command(instance_name: str) -> list[str]:
+        """
+        Get the command to stop this service.
+
+        Args:
+            instance_name: Name of the Apptainer instance to stop
+
+        Returns:
+            Command list for stopping the service
+        """
+        return ["apptainer", "instance", "stop", instance_name]
 
 
 class ApptainerServiceManager:
@@ -94,17 +106,17 @@ class ApptainerServiceManager:
     # Predefined configurations for different simulators
     SIMULATOR_CONFIGS = {
         "esmini": ApptainerServiceConfig(
-            sif_path="./worker.sif",
+            sif_path=".sifs/esmini.sif",
             preferred_port=8080,
         ),
         "carla": ApptainerServiceConfig(
-            sif_path="./carla-wrapper.sif",
-            preferred_port=3000,
+            sif_path=".sifs/carla-wrapper.sif",
+            preferred_port=50051,
             extra_ports={"CARLA_PORT": 2000},
         ),
         # Add more simulator configurations as needed
         # "autoware": ApptainerServiceConfig(
-        #     sif_path="./autoware.sif",
+        #     sif_path=".sifs/autoware.sif",
         #     preferred_port=8080,
         # ),
     }
@@ -113,26 +125,26 @@ class ApptainerServiceManager:
     AV_CONFIGS = {
         # Example AV configurations - uncomment and modify as needed
         # "autoware": ApptainerServiceConfig(
-        #     sif_path="./autoware-av.sif",
+        #     sif_path=".sifs/autoware-av.sif",
         #     preferred_port=9090,
         # ),
         # "apollo": ApptainerServiceConfig(
-        #     sif_path="./apollo.sif",
+        #     sif_path=".sifs/apollo.sif",
         #     preferred_port=8888,
         # ),
     }
 
     # Runner configuration
     RUNNER_CONFIG = ApptainerServiceConfig(
-        sif_path="./runner.sif",
+        sif_path=".sifs/runner.sif",
         preferred_port=None,  # Runner doesn't need a port
     )
 
     def __init__(self):
         """Initialize the service manager."""
-        self.active_processes: dict[str, tuple[subprocess.Popen, dict[str, int]]] = (
+        self.running_instances: dict[str, dict[str, int]] = (
             {}
-        )  # Maps service_name -> (process, ports_dict)
+        )  # Maps service_name -> ports_dict
         self.component_to_instance: dict[str, str] = (
             {}
         )  # Maps component_type:component_name -> service_name
@@ -214,41 +226,37 @@ class ApptainerServiceManager:
         service_name = f"{component_name}-{allocated_port}"
 
         try:
-            command = config.get_start_command(allocated_ports)
+            command = config.get_start_command(service_name, allocated_ports)
             print(f"Running command: {' '.join(command)}")
 
-            proc = subprocess.Popen(
-                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-            )
+            proc = subprocess.run(command, capture_output=True, text=True, timeout=10)
+
+            if proc.returncode != 0:
+                print(f"Failed to start Apptainer instance: {proc.stderr}")
+                return None
 
             # Wait for service to start
             time.sleep(config.startup_wait)
 
-            # Check if service started successfully
-            if proc.poll() is not None:
-                _, stderr = proc.communicate()
-                print(f"Warning: Apptainer service may have failed to start: {stderr}")
-                return None
-            else:
-                service_url = f"http://localhost:{allocated_port}"
-                print(f"Apptainer service '{service_name}' started successfully")
-                print(f"Service URL: {service_url}")
-                print(f"Service Port: {allocated_port}")
-                for env_var, port in allocated_ports.items():
-                    if env_var != "PORT":
-                        print(f"  {env_var}: {port}")
+            service_url = f"http://localhost:{allocated_port}"
+            print(f"Apptainer instance '{service_name}' started successfully")
+            print(f"Service URL: {service_url}")
+            print(f"Service Port: {allocated_port}")
+            for env_var, port in allocated_ports.items():
+                if env_var != "PORT":
+                    print(f"  {env_var}: {port}")
 
-                self.active_processes[service_name] = (proc, allocated_ports)
-                self.component_to_instance[f"{component_type}:{component_name}"] = (
-                    service_name
-                )
+            self.running_instances[service_name] = allocated_ports
+            self.component_to_instance[f"{component_type}:{component_name}"] = (
+                service_name
+            )
 
-                return {
-                    "url": service_url,
-                    "port": allocated_port,
-                    "ports": allocated_ports,
-                    "service_name": service_name,
-                }
+            return {
+                "url": service_url,
+                "port": allocated_port,
+                "ports": allocated_ports,
+                "service_name": service_name,
+            }
         except Exception as e:
             print(f"Failed to start Apptainer service: {e}")
             return None
@@ -304,43 +312,53 @@ class ApptainerServiceManager:
             return
 
         try:
-            print(f"Stopping Apptainer process: {service_name}")
-            proc_info = self.active_processes.get(service_name)
-            if proc_info:
-                proc, ports = proc_info
-                proc.terminate()
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait()
-                main_port = ports.get("PORT", "unknown")
-                print(f"Apptainer process '{service_name}' (port {main_port}) stopped")
+            command = config.get_stop_command(service_name)
+            print(f"Stopping Apptainer instance: {service_name}")
+            proc = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
 
-            # Remove from active processes
-            self.active_processes.pop(service_name, None)
+            if proc.returncode != 0:
+                print(f"Failed to stop Apptainer instance: {proc.stderr}")
+                return
+
+            ports = self.running_instances.get(service_name, {})
+            main_port = ports.get("PORT", "unknown")
+            print(f"Apptainer instance '{service_name}' (port {main_port}) stopped")
+
+            # Remove from running instances
+            self.running_instances.pop(service_name, None)
             self.component_to_instance.pop(component_key, None)
         except Exception as e:
             print(f"Failed to stop Apptainer service: {e}")
 
     def stop_all_services(self):
         """Stop all active Apptainer services."""
-        for service_name in list(self.active_processes.keys()):
+        for service_name in list(self.running_instances.keys()):
             try:
-                print(f"Stopping Apptainer process: {service_name}")
-                proc, ports = self.active_processes[service_name]
-                proc.terminate()
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait()
-                main_port = ports.get("PORT", "unknown")
-                print(f"Apptainer process '{service_name}' (port {main_port}) stopped")
-            except Exception as e:
-                print(f"Failed to stop Apptainer process {service_name}: {e}")
+                command = ApptainerServiceConfig.get_stop_command(service_name)
+                print(f"Stopping Apptainer instance: {service_name}")
+                proc = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
 
-        self.active_processes.clear()
+                if proc.returncode != 0:
+                    print(f"Failed to stop Apptainer instance: {proc.stderr}")
+                    continue
+
+                ports = self.running_instances[service_name]
+                main_port = ports.get("PORT", "unknown")
+                print(f"Apptainer instance '{service_name}' (port {main_port}) stopped")
+            except Exception as e:
+                print(f"Failed to stop Apptainer instance {service_name}: {e}")
+
+        self.running_instances.clear()
         self.component_to_instance.clear()
 
     def run_runner(self, spec: dict, task_id: int = 0, worker_id: int = 0) -> int:

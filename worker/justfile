@@ -1,7 +1,7 @@
-default: (pull)
+default: (build)
 
-pull:
-    apptainer pull carla-wrapper.sif docker://tonychi/carla-wrapper:latest
+build:
+    apptainer build sifs/carla-wrapper.sif defs/carla-wrapper.def
 
 clean:
-    rm -f carla-wrapper.sif
+    rm -f sifs/carla-wrapper.sif
