@@ -1,0 +1,6 @@
+Bootstrap: docker
+From: tonychi/worker:latest
+
+
+%startscript
+    /app/entrypoint.sh
