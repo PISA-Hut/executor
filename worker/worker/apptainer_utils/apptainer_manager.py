@@ -123,7 +123,7 @@ class ApptainerServiceManager:
 
             time.sleep(config.startup_wait)
 
-            service_url = f"http://localhost:{allocated_port}"
+            service_url = f"localhost:{allocated_port}"
             logger.info("%s service available at: %s", component_kind, service_url)
 
             self.running_instances[service_name] = allocated_ports

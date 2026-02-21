@@ -4,7 +4,6 @@ worker/**/*.py[cod]
 .env
 
 logs/
-mnt/
-output_dir/
+outputs/
 
 libesminiRMLib.so

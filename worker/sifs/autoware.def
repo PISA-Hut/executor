@@ -1,0 +1,6 @@
+Bootstrap: docker
+From: tonychi/autoware-wrapper:latest
+
+%startscript
+#!/bin/bash
+bash /app/entrypoint.sh

@@ -1,15 +1,14 @@
-import dotenv
 import copy
+import dotenv
+import logging
+import os
 from pprint import pprint
 from typing import Any
-from pathlib import Path
-import logging
 
-from worker.manager_client import ManagerClient
-from worker.system import collect_worker_identity
 from worker.apptainer_utils.apptainer_manager import ApptainerServiceManager
-
+from worker.manager_client import ManagerClient
 from worker.runner.runner import Runner
+from worker.system import collect_worker_identity
 
 dotenv.load_dotenv()
 
@@ -23,12 +22,13 @@ logging.basicConfig(
 
 
 def main():
-    print("Starting worker...")
+    logger.info("Starting worker...")
     client = ManagerClient()
     slurm_info = collect_worker_identity()
     worker_info = client.register_worker(slurm_info)
-    print(f"Registered worker with ID: {worker_info['id']}")
+    logger.info(f"Registered worker with ID: {worker_info['id']}")
     job_id = slurm_info.get("job_id", "unknown")
+    worker_id = worker_info.get("id", "unknown")
 
     assert isinstance(worker_info["id"], int)
     response = client.claim_task(worker_info["id"])
@@ -39,7 +39,7 @@ def main():
 
     claimed_spec: dict[str, dict[str, Any]] = response
     task_id = claimed_spec.get("task", {}).get("id")
-    print(f"Claimed task ID: {task_id}")
+    logger.info(f"Claimed task with ID: {task_id}")
 
     claimed_scenario = dict(claimed_spec.get("scenario", {}))
     claimed_simulator = dict(claimed_spec.get("simulator", {}))
@@ -71,20 +71,21 @@ def main():
         },
     }
 
-    print(f"Claimed task: {task_id}")
+    logger.info(f"Claimed scenario: {claimed_scenario.get('title', 'unknown')}")
 
     service_manager = ApptainerServiceManager()
 
-    output_dir = str(Path("./output").resolve())
+    output_dir = str(f"./outputs/job_{job_id}_worker_{worker_id}")
+    os.makedirs(output_dir, exist_ok=True)
 
     started_specs = service_manager.start(
         services_spec=services_spec,
         output_dir=output_dir,
     )
-    simulator_service_info = started_specs.get("simulator", {})
-    av_service_info = started_specs.get("av", {})
+    simulator_started_spec = started_specs.get("simulator", {})
+    av_started_spec = started_specs.get("av", {})
 
-    print()
+    logger.info(f"Started services: {list(started_specs.keys())}")
     runner_spec: dict[str, Any] = {
         "runtime": {
             "dt": 0.01,
@@ -95,21 +96,23 @@ def main():
         },
         "simulator": {
             "config_path": claimed_simulator.get("config_path"),
-            "map": simulator_service_info.get("map", {}),
+            "map": simulator_started_spec.get("map", {}),
             "scenario": {
                 "title": claimed_scenario.get("title"),
-                "path": simulator_service_info.get("scenario_path", {}),
+                "path": simulator_started_spec.get("scenario_path", {}),
             },
-            "output_path": simulator_service_info.get("output_path", {}),
+            "output_path": simulator_started_spec.get("output_path", {}),
+            "url": simulator_started_spec.get("service_info", {}).get("url", {}),
         },
         "av": {
             "config_path": claimed_av.get("config_path"),
-            "map": av_service_info.get("map", {}),
+            "map": av_started_spec.get("map", {}),
             "scenario": {
                 "title": claimed_scenario.get("title"),
-                "path": av_service_info.get("scenario_path", {}),
+                "path": av_started_spec.get("scenario_path", {}),
             },
-            "output_path": av_service_info.get("output_path", {}),
+            "output_path": av_started_spec.get("output_path", {}),
+            "url": av_started_spec.get("service_info", {}).get("url", {}),
         },
         "map": copy.deepcopy(claimed_map),
         "scenario": {
