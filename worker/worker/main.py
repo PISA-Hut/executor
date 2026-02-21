@@ -1,8 +1,9 @@
 import dotenv
-import json
+import copy
 from pprint import pprint
 from typing import Any
 from pathlib import Path
+import logging
 
 from worker.manager_client import ManagerClient
 from worker.system import collect_worker_identity
@@ -11,6 +12,14 @@ from worker.apptainer_service import ApptainerServiceManager
 from worker.runner.runner import Runner
 
 dotenv.load_dotenv()
+
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler()],
+)
 
 
 def main():
@@ -28,70 +37,94 @@ def main():
         return
     assert isinstance(response, dict)
 
-    spec: dict[str, dict[str, Any]] = response
-    task_id = spec["task"].pop("id", None)
+    claimed_spec: dict[str, dict[str, Any]] = response
+    task_id = claimed_spec.get("task", {}).get("id")
     print(f"Claimed task ID: {task_id}")
 
-    pprint(spec)
-    print()
+    claimed_scenario = dict(claimed_spec.get("scenario", {}))
+    claimed_simulator = dict(claimed_spec.get("simulator", {}))
+    claimed_av = dict(claimed_spec.get("av", {}))
+    claimed_map = dict(claimed_spec.get("map", {}))
 
-    spec["task"]["output_dir"] = f"./output"
-    spec["task"]["job_id"] = str(job_id)
-    spec["runtime"] = {"dt": 0.01}
-    assert isinstance(spec["scenario"], dict)
+    worker_scenario_path = claimed_scenario.get("scenairo_path")
+    if worker_scenario_path is None:
+        worker_scenario_path = claimed_scenario.get("scenario_path")
 
-    pprint(spec)
-    print()
+    services_spec: dict[str, dict[str, Any]] = {
+        "simulator": {
+            "name": claimed_simulator.get("name"),
+            "image_path": claimed_simulator.get("image_path"),
+            "extra_ports": copy.deepcopy(claimed_simulator.get("extra_ports")),
+            "nv_runtime": claimed_simulator.get("nv_runtime", False),
+        },
+        "av": {
+            "name": claimed_av.get("name"),
+            "image_path": claimed_av.get("image_path"),
+            "nv_runtime": claimed_av.get("nv_runtime", False),
+        },
+        "map": {
+            "osm_path": claimed_map.get("osm_path"),
+            "xodr_path": claimed_map.get("xodr_path"),
+        },
+        "scenario": {
+            "scenairo_path": worker_scenario_path,
+        },
+    }
+
     print(f"Claimed task: {task_id}")
 
-    # Initialize the Apptainer service manager
     service_manager = ApptainerServiceManager()
 
-    # Get component configs and start appropriate Apptainer services
-    simulator_spec = dict(spec.get("simulator", {}))
-    av_spec = dict(spec.get("av", {}))
+    output_dir = str(Path("./output").resolve())
 
-    map_spec = spec.get("map", {})
-    scenario_spec = spec.get("scenario", {})
-    task_spec = spec.get("task", {})
-
-    osm_path = str(Path(map_spec.get("osm_path", "./maps/osm")).resolve())
-    xodr_path = str(Path(map_spec.get("xodr_path", "./maps/xodr")).resolve())
-    scenario_path = str(
-        Path(scenario_spec.get("scenario_path", "./scenarios")).resolve()
+    started_specs = service_manager.start(
+        services_spec=services_spec,
+        output_dir=output_dir,
     )
-    output_path = str(Path(task_spec.get("output_dir", "./output")))
-    Path(output_path).mkdir(parents=True, exist_ok=True)
+    simulator_service_info = started_specs.get("simulator", {})
+    av_service_info = started_specs.get("av", {})
 
-    bind_mounts: list[tuple[str, str]] = [
-        (xodr_path, "/mnt/map/xodr"),
-        (osm_path, "/mnt/map/osm"),
-        (scenario_path, "/mnt/scenario"),
-        (output_path, "/mnt/output"),
-    ]
+    print()
+    runner_spec: dict[str, Any] = {
+        "runtime": {
+            "dt": 0.01,
+        },
+        "task": {
+            "job_id": str(job_id),
+            "output_dir": output_dir,
+        },
+        "simulator": {
+            "config_path": claimed_simulator.get("config_path"),
+            "map": simulator_service_info.get("map", {}),
+            "scenario": {
+                "title": claimed_scenario.get("title"),
+                "path": simulator_service_info.get("scenario_path", {}),
+            },
+            "output_path": simulator_service_info.get("output_path", {}),
+        },
+        "av": {
+            "config_path": claimed_av.get("config_path"),
+            "map": av_service_info.get("map", {}),
+            "scenario": {
+                "title": claimed_scenario.get("title"),
+                "path": av_service_info.get("scenario_path", {}),
+            },
+            "output_path": av_service_info.get("output_path", {}),
+        },
+        "map": copy.deepcopy(claimed_map),
+        "scenario": {
+            "goal_config": claimed_scenario.get("goal_config"),
+            "title": claimed_scenario.get("title"),
+            "scenario_path": claimed_scenario.get("scenario_path"),
+        },
+        "sampler": copy.deepcopy(claimed_spec.get("sampler", {})),
+    }
 
-    simulator_spec["bind_mounts"] = bind_mounts
-    av_spec["bind_mounts"] = bind_mounts
+    assert isinstance(runner_spec["scenario"], dict)
 
-    for component_kind, component_spec in (
-        ("simulator", simulator_spec),
-        ("av", av_spec),
-    ):
-        component_name = component_spec.get("name", "unknown")
-        print(f"{component_kind.title()}: {component_name}")
-
-        service_info = service_manager.start_component_service(
-            component_spec=component_spec,
-            component_kind=component_kind,
-        )
-        if service_info:
-            spec[component_kind]["service_info"] = service_info
-            print(
-                f"{component_kind.title()} service available at: {service_info['url']}"
-            )
-
+    pprint(runner_spec)
     try:
-        runner = Runner(spec)
+        runner = Runner(runner_spec)
         runner.exec()
     finally:
         service_manager.stop_all_services()
