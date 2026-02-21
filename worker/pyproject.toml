@@ -6,5 +6,10 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "dotenv>=0.9.9",
+    "pyyaml>=6.0.3",
     "requests>=2.32.5",
+    "sbsvf-api",
 ]
+
+[tool.uv.sources]
+sbsvf-api = { git = "https://github.com/lolainta/sbsvf-api.git" }

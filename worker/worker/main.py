@@ -1,10 +1,14 @@
 import dotenv
+import json
 from pprint import pprint
 from typing import Any
+from pathlib import Path
 
 from worker.manager_client import ManagerClient
 from worker.system import collect_worker_identity
 from worker.apptainer_service import ApptainerServiceManager
+
+from worker.runner.runner import Runner
 
 dotenv.load_dotenv()
 
@@ -28,68 +32,68 @@ def main():
     task_id = spec["task"].pop("id", None)
     print(f"Claimed task ID: {task_id}")
 
-    spec["task"]["output_dir"] = f"./output_dir"
+    pprint(spec)
+    print()
+
+    spec["task"]["output_dir"] = f"./output"
     spec["task"]["job_id"] = str(job_id)
     spec["runtime"] = {"dt": 0.01}
     assert isinstance(spec["scenario"], dict)
-    spec["scenario"]["ego"] = {
-        "target_speed": 50,
-        "spawn": {
-            "type": "LanePosition",
-            "value": [0, -2, 300, 0],
-            "speed": 50,
-        },
-        "goal": {
-            "type": "LanePosition",
-            "value": [0, -4, 700, 0],
-        },
-    }
-    spec["scenario"]["param_path"] = None
-    spec["simulator"] = {
-        "name": "carla",
-    }
 
     pprint(spec)
+    print()
     print(f"Claimed task: {task_id}")
 
     # Initialize the Apptainer service manager
     service_manager = ApptainerServiceManager()
 
-    # Get component names and start appropriate Apptainer services
-    simulator_name = spec.get("simulator", {}).get("name", "unknown")
-    av_name = spec.get("av", {}).get("name", "unknown")
+    # Get component configs and start appropriate Apptainer services
+    simulator_spec = dict(spec.get("simulator", {}))
+    av_spec = dict(spec.get("av", {}))
 
-    print(f"Simulator: {simulator_name}")
-    print(f"AV: {av_name}")
+    map_spec = spec.get("map", {})
+    scenario_spec = spec.get("scenario", {})
+    task_spec = spec.get("task", {})
 
-    # Start simulator service and get URL
-    simulator_service_info = service_manager.start_simulator_service(simulator_name)
-    if simulator_service_info:
-        spec["simulator"]["service_info"] = simulator_service_info
-        print(f"Simulator service available at: {simulator_service_info['url']}")
+    osm_path = str(Path(map_spec.get("osm_path", "./maps/osm")).resolve())
+    xodr_path = str(Path(map_spec.get("xodr_path", "./maps/xodr")).resolve())
+    scenario_path = str(
+        Path(scenario_spec.get("scenario_path", "./scenarios")).resolve()
+    )
+    output_path = str(Path(task_spec.get("output_dir", "./output")))
+    Path(output_path).mkdir(parents=True, exist_ok=True)
 
-    # Start AV service and get URL (if needed in the future)
-    av_service_info = service_manager.start_av_service(av_name)
-    if av_service_info:
-        spec["av"]["service_info"] = av_service_info
-        print(f"AV service available at: {av_service_info['url']}")
+    bind_mounts: list[tuple[str, str]] = [
+        (xodr_path, "/mnt/map/xodr"),
+        (osm_path, "/mnt/map/osm"),
+        (scenario_path, "/mnt/scenario"),
+        (output_path, "/mnt/output"),
+    ]
+
+    simulator_spec["bind_mounts"] = bind_mounts
+    av_spec["bind_mounts"] = bind_mounts
+
+    for component_kind, component_spec in (
+        ("simulator", simulator_spec),
+        ("av", av_spec),
+    ):
+        component_name = component_spec.get("name", "unknown")
+        print(f"{component_kind.title()}: {component_name}")
+
+        service_info = service_manager.start_component_service(
+            component_spec=component_spec,
+            component_kind=component_kind,
+        )
+        if service_info:
+            spec[component_kind]["service_info"] = service_info
+            print(
+                f"{component_kind.title()} service available at: {service_info['url']}"
+            )
 
     try:
-        # Run the scenario runner in Apptainer container
-        print("Starting scenario runner...")
-        exit_code = service_manager.run_runner(
-            spec, task_id=task_id, worker_id=worker_info["id"]
-        )
-
-        if exit_code == 0:
-            print(f"Completed task: {task_id}")
-            client.complete_task(task_id)
-        else:
-            print(f"Task failed with exit code: {exit_code}")
-            # TODO: Report task failure to manager
+        runner = Runner(spec)
+        runner.exec()
     finally:
-        # Always stop all Apptainer services, even if the task fails
-        print("Cleaning up Apptainer services...")
         service_manager.stop_all_services()
 
 

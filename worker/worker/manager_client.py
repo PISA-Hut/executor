@@ -23,8 +23,6 @@ class ManagerClient:
             json={"worker_id": worker_id},
             timeout=self.timeout,
         )
-        if r.status_code == 204:
-            return None
         r.raise_for_status()
         return r.json()
 
