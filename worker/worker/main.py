@@ -130,6 +130,11 @@ def main():
     try:
         runner = Runner(runner_spec)
         runner.exec()
+    except Exception:
+        logger.exception("Runner execution failed")
+        client.task_failed(task_id, "Runner execution failed")
+    else:
+        client.task_succeeded(task_id)
     finally:
         service_manager.stop_all_services()
 

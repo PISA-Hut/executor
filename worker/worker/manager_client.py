@@ -26,9 +26,20 @@ class ManagerClient:
         r.raise_for_status()
         return r.json()
 
-    def complete_task(self, task_id: int):
+    def task_failed(self, task_id: int, reason: str):
         r = requests.post(
-            f"{self.manager_url}/task/complete",
+            f"{self.manager_url}/task/failed",
+            json={
+                "task_id": task_id,
+                "reason": reason,
+            },
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+
+    def task_succeeded(self, task_id: int):
+        r = requests.post(
+            f"{self.manager_url}/task/succeeded",
             json={
                 "task_id": task_id,
             },
