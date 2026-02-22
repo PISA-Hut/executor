@@ -119,6 +119,7 @@ def main():
             "goal_config": claimed_scenario.get("goal_config"),
             "title": claimed_scenario.get("title"),
             "scenario_path": claimed_scenario.get("scenario_path"),
+            "rmlib_path": os.getenv("RMLIB_PATH", "libesminiRMLib.so"),
         },
         "sampler": copy.deepcopy(claimed_spec.get("sampler", {})),
     }
