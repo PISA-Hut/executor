@@ -1,8 +1,9 @@
+import logging
+import os
+from pathlib import Path
 import socket
 import subprocess
 import time
-import logging
-from pathlib import Path
 from typing import Any, Optional
 
 from worker.apptainer_utils.apptainer_config import ApptainerServiceConfig
@@ -69,16 +70,9 @@ class ApptainerServiceManager:
         spec: dict[str, Any],
         key: str,
     ) -> str:
-        raw_path: Any = spec.get(key)
-
-        if raw_path is None:
-            available_keys = ", ".join(sorted(spec.keys())) or "<none>"
-            raise ValueError(
-                "Missing required host path. "
-                f"Expected key '{key}'. Available keys: {available_keys}"
-            )
-
-        resolved_path = Path(str(raw_path)).resolve()
+        SBSVF_DIR = os.getenv("SBSVF_DIR", "/opt/sbsvf")
+        path = os.path.join(SBSVF_DIR, spec.get(key))
+        resolved_path = Path(path).resolve()
         if not resolved_path.exists():
             raise FileNotFoundError(
                 f"Host path for key '{key}' does not exist: {resolved_path}"
