@@ -1,15 +1,14 @@
-import copy
 import dotenv
 import logging
 import os
 from pprint import pprint
-from typing import Any
+from typing import Any, Optional
 
 from worker.apptainer_utils.apptainer_manager import ApptainerServiceManager
 from worker.manager_client import ManagerClient
 from worker.runner.runner import Runner
 from worker.system import collect_worker_identity
-from worker.utils import resolve_host_path
+from worker.utils import _build_runner_spec, _build_services_spec
 
 dotenv.load_dotenv()
 
@@ -22,119 +21,24 @@ logging.basicConfig(
 )
 
 
-def main():
-    logger.info("Starting worker...")
-    client = ManagerClient()
-    slurm_info = collect_worker_identity()
-    worker_info = client.register_worker(slurm_info)
-    logger.info(f"Registered worker with ID: {worker_info['id']}")
-    job_id = slurm_info.get("job_id", "unknown")
-    worker_id = worker_info.get("id", "unknown")
-
-    assert isinstance(worker_info["id"], int)
-    response = client.claim_task(worker_info["id"])
+def _claim_task_spec(
+    client: ManagerClient,
+    worker_id: int,
+) -> Optional[dict[str, dict[str, Any]]]:
+    response = client.claim_task(worker_id)
     if response is None:
-        print("No tasks available to claim.")
-        return
+        logger.info("No tasks available to claim.")
+        return None
     assert isinstance(response, dict)
+    return response
 
-    claimed_spec: dict[str, dict[str, Any]] = response
-    task_id = claimed_spec.get("task", {}).get("id")
-    logger.info(f"Claimed task with ID: {task_id}")
 
-    claimed_scenario = dict(claimed_spec.get("scenario", {}))
-    claimed_simulator = dict(claimed_spec.get("simulator", {}))
-    claimed_av = dict(claimed_spec.get("av", {}))
-    claimed_map = dict(claimed_spec.get("map", {}))
-
-    worker_scenario_path = claimed_scenario.get("scenairo_path")
-    if worker_scenario_path is None:
-        worker_scenario_path = claimed_scenario.get("scenario_path")
-
-    services_spec: dict[str, dict[str, Any]] = {
-        "simulator": {
-            "name": claimed_simulator.get("name"),
-            "image_path": claimed_simulator.get("image_path"),
-            "extra_ports": copy.deepcopy(claimed_simulator.get("extra_ports")),
-            "nv_runtime": claimed_simulator.get("nv_runtime", False),
-        },
-        "av": {
-            "name": claimed_av.get("name"),
-            "image_path": claimed_av.get("image_path"),
-            "nv_runtime": claimed_av.get("nv_runtime", False),
-        },
-        "map": {
-            "osm_path": claimed_map.get("osm_path"),
-            "xodr_path": claimed_map.get("xodr_path"),
-        },
-        "scenario": {
-            "scenairo_path": worker_scenario_path,
-        },
-    }
-
-    logger.info(f"Claimed scenario: {claimed_scenario.get('title', 'unknown')}")
-
-    service_manager = ApptainerServiceManager()
-
-    output_dir = str(f"./outputs/job_{job_id}_worker_{worker_id}")
-    os.makedirs(output_dir, exist_ok=True)
-
-    started_specs = service_manager.start(
-        services_spec=services_spec,
-        output_dir=output_dir,
-    )
-    simulator_started_spec = started_specs.get("simulator", {})
-    av_started_spec = started_specs.get("av", {})
-
-    logger.info(f"Started services: {list(started_specs.keys())}")
-    runner_spec: dict[str, Any] = {
-        "runtime": {
-            "dt": 0.01,
-        },
-        "task": {
-            "job_id": str(job_id),
-            "output_dir": output_dir,
-        },
-        "simulator": {
-            "config_path": resolve_host_path(claimed_simulator.get("config_path")),
-            "map": simulator_started_spec.get("map", {}),
-            "scenario": {
-                "title": claimed_scenario.get("title"),
-                "path": simulator_started_spec.get("scenario_path", {}),
-            },
-            "output_path": simulator_started_spec.get("output_path", {}),
-            "url": simulator_started_spec.get("service_info", {}).get("url", {}),
-        },
-        "av": {
-            "config_path": resolve_host_path(claimed_av.get("config_path")),
-            "map": av_started_spec.get("map", {}),
-            "scenario": {
-                "title": claimed_scenario.get("title"),
-                "path": av_started_spec.get("scenario_path", {}),
-            },
-            "output_path": av_started_spec.get("output_path", {}),
-            "url": av_started_spec.get("service_info", {}).get("url", {}),
-        },
-        "map": {
-            "name": claimed_map.get("name"),
-            "osm_path": resolve_host_path(claimed_map.get("osm_path")),
-            "xodr_path": resolve_host_path(claimed_map.get("xodr_path")),
-        },
-        "scenario": {
-            "goal_config": claimed_scenario.get("goal_config"),
-            "title": claimed_scenario.get("title"),
-            "scenario_path": resolve_host_path(claimed_scenario.get("scenario_path")),
-            "rmlib_path": resolve_host_path(
-                os.getenv(
-                    "RMLIB_PATH",
-                    f"{os.getenv('SBSVF_DIR', '/opt/sbsvf')}/lib/libesminiRMLib.so",
-                )
-            ),
-        },
-        "sampler": copy.deepcopy(claimed_spec.get("sampler", {})),
-    }
-
-    assert isinstance(runner_spec["scenario"], dict)
+def _execute_runner_task(
+    client: ManagerClient,
+    task_id: Any,
+    runner_spec: dict[str, Any],
+) -> None:
+    assert isinstance(runner_spec.get("scenario"), dict)
 
     pprint(runner_spec)
     try:
@@ -142,10 +46,65 @@ def main():
         runner.exec()
     except Exception as exc:
         err_msg = f"{type(exc).__name__}: {str(exc)}"
-        logger.exception(f"Task execution failed with error: {err_msg}")
+        logger.exception("Task execution failed with error: %s", err_msg)
         client.task_failed(task_id, reason=err_msg)
     else:
         client.task_succeeded(task_id)
+
+
+def main():
+    logger.info("Starting worker...")
+    client = ManagerClient()
+    slurm_info = collect_worker_identity()
+    worker_info = client.register_worker(slurm_info)
+    logger.info("Registered worker with ID: %s", worker_info["id"])
+
+    job_id = slurm_info.get("job_id", "unknown")
+    worker_id = worker_info.get("id", "unknown")
+    assert isinstance(worker_info["id"], int)
+
+    claimed_spec = _claim_task_spec(client, worker_info["id"])
+    if claimed_spec is None:
+        return
+
+    task_id = claimed_spec.get("task", {}).get("id")
+    logger.info("Claimed task with ID: %s", task_id)
+
+    claimed_scenario = dict(claimed_spec.get("scenario", {}))
+    claimed_simulator = dict(claimed_spec.get("simulator", {}))
+    claimed_av = dict(claimed_spec.get("av", {}))
+    claimed_map = dict(claimed_spec.get("map", {}))
+    logger.info("Claimed scenario: %s", claimed_scenario.get("title", "unknown"))
+
+    services_spec = _build_services_spec(
+        claimed_simulator=claimed_simulator,
+        claimed_av=claimed_av,
+        claimed_map=claimed_map,
+        claimed_scenario=claimed_scenario,
+    )
+
+    output_dir = str(f"./outputs/job_{job_id}_worker_{worker_id}")
+    os.makedirs(output_dir, exist_ok=True)
+
+    service_manager = ApptainerServiceManager()
+    try:
+        started_specs = service_manager.start(
+            services_spec=services_spec,
+            output_dir=output_dir,
+        )
+        logger.info("Started services: %s", list(started_specs.keys()))
+
+        runner_spec = _build_runner_spec(
+            claimed_spec=claimed_spec,
+            claimed_simulator=claimed_simulator,
+            claimed_av=claimed_av,
+            claimed_map=claimed_map,
+            claimed_scenario=claimed_scenario,
+            started_specs=started_specs,
+            job_id=job_id,
+            output_dir=output_dir,
+        )
+        _execute_runner_task(client=client, task_id=task_id, runner_spec=runner_spec)
     finally:
         service_manager.stop_all_services()
 
