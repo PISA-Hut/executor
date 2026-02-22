@@ -105,6 +105,12 @@ def main():
             output_dir=output_dir,
         )
         _execute_runner_task(client=client, task_id=task_id, runner_spec=runner_spec)
+    except Exception as exc:
+        logger.exception("Worker failed with error: %s", exc)
+        if task_id is not None:
+            err_msg = f"{type(exc).__name__}: {str(exc)}"
+            client.task_failed(task_id, reason=err_msg)
+
     finally:
         service_manager.stop_all_services()
 

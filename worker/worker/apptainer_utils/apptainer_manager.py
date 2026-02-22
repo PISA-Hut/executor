@@ -182,6 +182,11 @@ class ApptainerServiceManager:
         )
         av_service_info = self._start_one_service("av", av_service_config)
 
+        if simulator_service_info is None or av_service_info is None:
+            logger.error("Failed to start required services. Stopping all services.")
+            self.stop_all_services()
+            raise RuntimeError("Failed to start required services.")
+
         base_started_spec = {
             "map": {
                 "xodr_path": self.MAP_CONTAINER_PATHS["xodr_path"],
