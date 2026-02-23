@@ -62,7 +62,6 @@ def main():
     logger.info("Registered worker with ID: %s", worker_info["id"])
 
     job_id = slurm_info.get("job_id", "unknown")
-    worker_id = worker_info.get("id", "unknown")
     assert isinstance(worker_info["id"], int)
 
     claimed_spec = _claim_task_spec(client, worker_info["id"])
