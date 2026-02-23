@@ -111,6 +111,20 @@ class ManagerClient:
         )
         r.raise_for_status()
 
+    def task_invalid(self, task_id: int, reason: str):
+        logger.info(
+            f"Reporting task invalid for task ID {task_id} with reason: {reason}"
+        )
+        r = requests.post(
+            f"{self.manager_url}/task/invalid",
+            json={
+                "task_id": task_id,
+                "reason": reason,
+            },
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+
     def task_succeeded(self, task_id: int):
         logger.info(f"Reporting task success for task ID {task_id}")
         r = requests.post(

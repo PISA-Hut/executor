@@ -35,9 +35,23 @@ def _execute_runner_task(
         logger.warning("Task execution interrupted by user.")
         client.task_failed(task_id, reason="Task interrupted by user")
     except Exception as exc:
-        err_msg = f"{type(exc).__name__}: {str(exc)}"
-        logger.exception("Task execution failed with error: %s", err_msg)
-        client.task_failed(task_id, reason=err_msg)
+        if isinstance(
+            exc, RuntimeError
+        ) and "Exceeded maximum retries for route not found errors" in str(exc):
+            logger.error(
+                f"Task execution failed due to repeated route not found errors: {exc}"
+            )
+            logger.warning(
+                "Marking task as invalid due to repeated route not found errors."
+            )
+            client.task_invalid(
+                task_id,
+                reason=f"Invalid task due to repeated route not found errors: {exc}",
+            )
+        else:
+            err_msg = f"{type(exc).__name__}: {str(exc)}"
+            logger.exception("Task execution failed with error: %s", err_msg)
+            client.task_failed(task_id, reason=err_msg)
     else:
         logger.info("Task execution succeeded for task ID: %s", task_id)
         client.task_succeeded(task_id)
