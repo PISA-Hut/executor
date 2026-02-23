@@ -36,7 +36,7 @@ class AVWrapper:
         else:
             self._dt_s = dt_ns / 1e9
 
-        self._url = self._av_spec.get("url", "140.113.240.40:50051")
+        self._url = self._av_spec.get("url", "localhost:50052")
         self._timeout = float(self._av_spec.get("timeout", 100.0))
         self._av_cfg_path = self._av_spec.get("config_path", None)
 

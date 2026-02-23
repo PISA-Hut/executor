@@ -218,10 +218,10 @@ class Runner:
                 if sleep_time_s > 0:
                     sleep(sleep_time_s)
 
-                print(
-                    f"time use = {time_use_s:.2f} s, sim_time = {sim_time_ns / 1e9:.2f} s",
-                    end="\r",
-                )
+                # print(
+                #     f"time use = {time_use_s:.2f} s, sim_time = {sim_time_ns / 1e9:.2f} s",
+                #     end="\r",
+                # )
 
             sim_time_need = time() - real_start_time_s
 

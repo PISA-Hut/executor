@@ -150,7 +150,8 @@ class ScenarioPack:
         cls, scenario_spec: Dict[str, Any], map_spec: Dict[str, Any]
     ) -> "ScenarioPack":
         name = scenario_spec["title"]
-        scenarios = {"xosc": scenario_spec["scenario_path"]}
+        scenario_folder = scenario_spec["scenario_path"]
+        scenarios = {"xosc": scenario_folder}
         map_name = map_spec["name"]
         ego = EgoConfig.from_dict(
             scenario_spec["goal_config"],
@@ -159,7 +160,7 @@ class ScenarioPack:
                 scenario_spec.get("rmlib_path", "libesminiRMLib.so")
             ).resolve(),
         )
-        param_range_file = scenario_spec.get("param_path", None)
+        param_range_file = Path(scenario_folder) / f"{name}_param.xosc"
         if param_range_file is not None:
             param_range_file = Path(param_range_file).resolve()
 

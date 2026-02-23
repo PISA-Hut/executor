@@ -83,12 +83,10 @@ class SimWrapper:
         self,
         output_dir: Path,
         scenario_pack: ScenarioPack,
-        params: Optional[dict[str, Any]] = {},
+        params: Optional[dict[str, str]] = {},
     ):
         self._ensure_ready()
-
         req = sim_server_pb2.SimServerMessages.ResetRequest(
-            # output_dir=path_pb2.Path(path=str(output_dir)),
             output_dir=path_pb2.Path(path=str(".")),
             scenario_pack=scenario_pack.to_protobuf(),
             params=params,
