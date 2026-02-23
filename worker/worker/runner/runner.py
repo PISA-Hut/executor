@@ -141,7 +141,9 @@ class Runner:
                                 logger.error(
                                     f"Exceeded maximum retries for route not found errors ({RETRY_ROUTE_NOT_FOUND_MAX}). Aborting further execution."
                                 )
-                                break
+                                raise RuntimeError(
+                                    f"Exceeded maximum retries for route not found errors ({RETRY_ROUTE_NOT_FOUND_MAX}). Aborting further execution."
+                                ) from e
                             continue
                         else:
                             logger.error(
@@ -152,6 +154,9 @@ class Runner:
                     except Exception as exc:
                         logger.exception(f"Scenario failed at iteration {i+1}: {exc}")
                         continue
+                    else:
+                        # Reset route_not_found_count after a successful execution
+                        route_not_found_count = 0
             else:
                 logger.info("Running a single concrete scenario.")
                 try:
