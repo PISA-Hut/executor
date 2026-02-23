@@ -12,7 +12,6 @@ from sbsvf_api import (
     path_pb2,
 )
 
-from worker.runner.exception.av import RouteNotFoundError
 from worker.runner.utils.sps import ScenarioPack
 from worker.runner.utils.util import get_cfg
 
@@ -148,10 +147,6 @@ class AVWrapper:
         except grpc.RpcError:
             # server 抖一下不要直接判 quit
             return False
-
-    # ---------------------------
-    # Helpers
-    # ---------------------------
 
     # ---------------------------
     # Internal
