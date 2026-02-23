@@ -11,18 +11,10 @@ from worker.runner.utils.sps import ScenarioPack
 from worker.runner.sim_wrapper import SimWrapper
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler()],
-)
 
 
 class Runner:
     def __init__(self, spec: dict[str, Any]):
-
-        logging.info("Initializing Runner...")
-
         runtime_spec = spec.get("runtime", {})
         task_spec = spec.get("task", {})
         sim_spec = spec.get("simulator", {})
@@ -67,9 +59,9 @@ class Runner:
                 dt_ns=int(self._dt_s * 1e9),
             )
             # self.sim.init(sim_spec=sim_spec, dt=self._dt_s)
-        except Exception:
+        except Exception as exc:
             logger.exception("Simulator initialization failed")
-            raise
+            raise exc
 
         try:
             self.av = AVWrapper(
@@ -79,9 +71,9 @@ class Runner:
                 sps=self.sps,
             )
             # self.av.init(av_spec=av_spec, dt=self._dt_s)
-        except Exception:
+        except Exception as exc:
             logger.exception("AV initialization failed")
-            raise
+            raise exc
 
         # module = importlib.import_module(bridge_spec["module_path"].split(":")[0])
         # bridge_class = getattr(module, bridge_spec["module_path"].split(":")[1])
@@ -135,18 +127,26 @@ class Runner:
                     cur_output_dir.mkdir(parents=True, exist_ok=True)
                     try:
                         self.run_concrete(cur_output_dir, self.sps, params)
-                    except Exception:
-                        logger.exception(f"Scenario failed at iteration {i+1}")
+                    except KeyboardInterrupt:
+                        logger.warning("Execution interrupted by user. Stopping.")
+                        raise KeyboardInterrupt
+                    except Exception as exc:
+                        logger.exception(f"Scenario failed at iteration {i+1}: {exc}")
                         continue
             else:
                 logger.info("Running a single concrete scenario.")
                 try:
                     self.run_concrete(self.output_dir, self.sps)
-                except Exception:
-                    logger.exception("Scenario failed")
+                except Exception as exc:
+                    logger.exception(f"Scenario failed: {exc}")
+                    raise exc
 
             logger.info("Runner execution completed.")
-
+        except KeyboardInterrupt:
+            raise KeyboardInterrupt
+        except Exception as exc:
+            logger.exception(f"Runner execution failed: {exc}")
+            raise exc
         finally:
             self.close()
 
@@ -168,16 +168,14 @@ class Runner:
             raw_obs = self.sim.reset(output_dir, sps, params)
         except Exception as e:
             logger.error(f"Simulator reset failed: {e}")
-            return
+            raise e
 
         logger.info("Resetting AV...")
         try:
             ctrl_for_sim = self.av.reset(output_dir, sps, raw_obs)
         except Exception as e:
             logger.error(f"AV reset failed: {e}")
-            traceback_str = traceback.format_exc()
-            logger.error(f"Stack trace:\n{traceback_str}")
-            return
+            raise e
 
         dt_s = self._dt_s
         dt_ns = int(dt_s * 1e9)
@@ -227,9 +225,7 @@ class Runner:
 
         except Exception as e:
             logger.error(f"Error during scenario execution: {e}")
-            traceback_str = traceback.format_exc()
-            logger.error(f"Stack trace:\n{traceback_str}")
-            return
+            raise e
 
         logger.info(
             f"Completed {sim_time_ns / 1e9:.2f} seconds scenario, using {sim_time_need:.2f} sec."

@@ -62,7 +62,7 @@ class AVWrapper:
         # Ping
         try:
             pong = self._stub.Ping(empty_pb2.Empty(), timeout=self._timeout)
-            print(f"Ping response: {pong.msg}")
+            logger.info(f"Ping response: {pong.msg}")
         except grpc.RpcError as e:
             raise RuntimeError(f"Ping failed: {e.code().name} - {e.details()}") from e
 

@@ -1,6 +1,10 @@
-from typing import Any
-import requests
+import logging
 import os
+import requests
+from typing import Any
+
+
+logger = logging.getLogger(__name__)
 
 
 class ManagerClient:
@@ -27,6 +31,9 @@ class ManagerClient:
         return r.json()
 
     def task_failed(self, task_id: int, reason: str):
+        logger.info(
+            f"Reporting task failure for task ID {task_id} with reason: {reason}"
+        )
         r = requests.post(
             f"{self.manager_url}/task/failed",
             json={
@@ -38,6 +45,7 @@ class ManagerClient:
         r.raise_for_status()
 
     def task_succeeded(self, task_id: int):
+        logger.info(f"Reporting task success for task ID {task_id}")
         r = requests.post(
             f"{self.manager_url}/task/succeeded",
             json={

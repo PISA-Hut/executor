@@ -12,7 +12,6 @@ from worker.utils import build_runner_spec, build_services_spec
 
 dotenv.load_dotenv()
 
-
 logger = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
@@ -39,16 +38,19 @@ def _execute_runner_task(
     runner_spec: dict[str, Any],
 ) -> None:
     assert isinstance(runner_spec.get("scenario"), dict)
-
     pprint(runner_spec)
     try:
         runner = Runner(runner_spec)
         runner.exec()
+    except KeyboardInterrupt:
+        logger.warning("Task execution interrupted by user.")
+        client.task_failed(task_id, reason="Task interrupted by user")
     except Exception as exc:
         err_msg = f"{type(exc).__name__}: {str(exc)}"
         logger.exception("Task execution failed with error: %s", err_msg)
         client.task_failed(task_id, reason=err_msg)
     else:
+        logger.info("Task execution succeeded for task ID: %s", task_id)
         client.task_succeeded(task_id)
 
 

@@ -8,7 +8,7 @@ import logging
 from sbsvf_api import position_pb2
 
 
-logger = logging.getLogger("esmini.rm")
+logger = logging.getLogger(__name__)
 
 
 # ---------- ctypes struct ----------
