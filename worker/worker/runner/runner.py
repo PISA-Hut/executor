@@ -130,10 +130,13 @@ class Runner:
                         self.run_concrete(f"iteration_{i+1}", self.sps, params)
                     except RuntimeError as e:
                         if "AV route not found during reset" in str(e):
-                            logger.warning(
-                                f"Encountered known issue during scenario execution: {str(e)}. This can be caused by the AV server not properly handling route points. Attempting to continue to next scenario."
-                            )
                             route_not_found_count += 1
+                            logger.warning(
+                                f"Encountered known issue during scenario execution: {str(e)}. This can be caused by the AV cannot find a valid route for the scenario, which may be due to limitations in the scenario design or the AV's routing capabilities. The current parameter combination will be skipped."
+                            )
+                            logger.warning(
+                                f"RouteNotFoundError count: {route_not_found_count}/{RETRY_ROUTE_NOT_FOUND_MAX}"
+                            )
                             if route_not_found_count >= RETRY_ROUTE_NOT_FOUND_MAX:
                                 logger.error(
                                     f"Exceeded maximum retries for route not found errors ({RETRY_ROUTE_NOT_FOUND_MAX}). Aborting further execution."
