@@ -141,6 +141,11 @@ def main():
     )
 
     output_dir = str(f"./outputs/job_{job_id}")
+    task_output_link = f"./outputs/task_{task_id}"
+    if os.path.islink(task_output_link) or os.path.exists(task_output_link):
+        os.remove(task_output_link)
+
+    os.symlink(output_dir, task_output_link)
     os.makedirs(output_dir, exist_ok=True)
 
     service_manager = ApptainerServiceManager()
