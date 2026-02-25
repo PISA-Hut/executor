@@ -225,13 +225,12 @@ class Runner:
                 ctrl_for_sim = self.av.step(raw_obs, sim_time_ns)
                 sim_time_ns += dt_ns
 
-                cur_time_s = time()
-                time_use_s = cur_time_s - real_start_time_s
-
-                loop_need_time = time() - loop_start_time
-                sleep_time_s = dt_s - loop_need_time
-                if sleep_time_s > 0:
-                    sleep(sleep_time_s)
+                # cur_time_s = time()
+                # time_use_s = cur_time_s - real_start_time_s
+                # loop_need_time = time() - loop_start_time
+                # sleep_time_s = dt_s - loop_need_time
+                # if sleep_time_s > 0:
+                #     sleep(sleep_time_s)
 
                 # print(
                 #     f"time use = {time_use_s:.2f} s, sim_time = {sim_time_ns / 1e9:.2f} s",
