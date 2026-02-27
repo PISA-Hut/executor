@@ -12,6 +12,7 @@ class ManagerClient:
         self.manager_url = os.getenv("MANAGER_URL")
         self.timeout = int(os.getenv("TIMEOUT", "30"))
 
+        self.maps: dict[str, int] = {}
         self.avs: dict[str, int] = {}
         self.simulators: dict[str, int] = {}
         self.samplers: dict[str, int] = {}
@@ -41,7 +42,9 @@ class ManagerClient:
     def _get_id_by_name(self, entity_type: str, name: str | None) -> int | None:
         if name is None:
             return None
-        if entity_type == "av":
+        if entity_type == "map":
+            return self.maps.get(name)
+        elif entity_type == "av":
             return self.avs.get(name)
         elif entity_type == "simulator":
             return self.simulators.get(name)
@@ -53,14 +56,16 @@ class ManagerClient:
     def _claim_task_by_id(
         self,
         worker_id: int,
-        plan_id: int | None = None,
+        map_id: int | None = None,
+        scenario_id: int | None = None,
         av_id: int | None = None,
         simulator_id: int | None = None,
         sampler_id: int | None = None,
     ) -> dict[str, dict[str, Any]] | None:
         payload = {
             "worker_id": worker_id,
-            "plan_id": plan_id,
+            "map_id": map_id,
+            "scenario_id": scenario_id,  # scenario_id is not supported in claim by ID
             "av_id": av_id,
             "simulator_id": simulator_id,
             "sampler_id": sampler_id,
@@ -75,6 +80,7 @@ class ManagerClient:
         return r.json()
 
     def fetch(self) -> None:
+        self.maps: dict[str, int] = self._list_entities("map")
         self.avs: dict[str, int] = self._list_entities("av")
         self.simulators: dict[str, int] = self._list_entities("simulator")
         self.samplers: dict[str, int] = self._list_entities("sampler")
@@ -82,7 +88,8 @@ class ManagerClient:
     def claim_task_spec(
         self,
         slurm_info: dict[str, str | int],
-        plan_id: int | None = None,
+        map_name: str | None = None,
+        scenario_id: int | None = None,
         av_name: str | None = None,
         simulator_name: str | None = None,
         sampler_name: str | None = None,
@@ -91,7 +98,8 @@ class ManagerClient:
         logger.info(f"Registered worker with ID: {worker_info['id']}")
         return self._claim_task_by_id(
             worker_id=worker_info["id"],
-            plan_id=plan_id,
+            map_id=self._get_id_by_name("map", map_name),
+            scenario_id=scenario_id,
             av_id=self._get_id_by_name("av", av_name),
             simulator_id=self._get_id_by_name("simulator", simulator_name),
             sampler_id=self._get_id_by_name("sampler", sampler_name),

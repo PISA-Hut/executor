@@ -56,16 +56,20 @@ def _execute_runner_task(
 
 
 def parse_args(
-    avs: dict[str, int], simulators: dict[str, int], samplers: dict[str, int]
+    maps: dict[str, int],
+    avs: dict[str, int],
+    simulators: dict[str, int],
+    samplers: dict[str, int],
 ) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Worker process that claims and executes tasks from the manager."
     )
     parser.add_argument(
-        "--plan-id",
-        type=int,
+        "--map",
+        type=str,
+        choices=list(maps.keys()),
         default=None,
-        help="ID of the plan to filter tasks by (optional)",
+        help="Name of the map to filter tasks by (optional)",
     )
     parser.add_argument(
         "--av",
@@ -89,6 +93,12 @@ def parse_args(
         help="Name of the sampler to filter tasks by (optional)",
     )
     parser.add_argument(
+        "--scenario-id",
+        type=int,
+        default=None,
+        help="ID of the scenario to filter tasks by (optional)",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -102,7 +112,7 @@ def main():
     client = ManagerClient()
     client.fetch()  # Fetch AVs, simulators, and samplers to cache their IDs
 
-    args = parse_args(client.avs, client.simulators, client.samplers)
+    args = parse_args(client.maps, client.avs, client.simulators, client.samplers)
     logger.setLevel(getattr(logging, args.log_level.upper()))
 
     logger.info("Starting worker...")
@@ -112,7 +122,8 @@ def main():
 
     claimed_spec = client.claim_task_spec(
         slurm_info,
-        plan_id=args.plan_id,
+        map_name=args.map,
+        scenario_id=args.scenario_id,
         av_name=args.av,
         simulator_name=args.simulator,
         sampler_name=args.sampler,
