@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name=worker
+#SBATCH --job-name=worker-ind
 #SBATCH --output=outputs/stdout/job_%j
 #SBATCH --error=outputs/stderr/job_%j
-#SBATCH --time=02:00:00
+#SBATCH --time=01:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=4G
@@ -22,7 +22,7 @@ echo "CPU Info:"
 echo
 
 echo "Start Time:    $(date)"
-uv run -m worker
+uv run -m worker --map frankenburg
 if [ $? -ne 0 ]; then
     echo "Worker execution failed."
     exit 1
