@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=worker
-#SBATCH --output=outputs/job_%j/stdout
-#SBATCH --error=outputs/job_%j/stderr
+#SBATCH --output=outputs/stdout/job_%j
+#SBATCH --error=outputs/stderr/job_%j
 #SBATCH --time=02:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8

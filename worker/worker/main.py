@@ -36,21 +36,16 @@ def _execute_runner_task(
         client.task_failed(task_id, reason="Task interrupted by user")
     except Exception as exc:
         if isinstance(exc, RuntimeError):
-            if "(previous iterations succeeded, but this one failed)" in str(exc):
+            if "Failed to set Autoware route points." in str(exc):
                 logger.error(
-                    f"Task execution failed at a later iteration after some successes: {exc}"
+                    f"Task execution failed due to route not found error: {exc}"
                 )
+                client.task_invalid(task_id, reason=str(exc))
+                return
+            else:
+                logger.error(f"Task execution failed with runtime error: {exc}")
                 client.task_failed(task_id, reason=str(exc))
                 return
-            elif "Exceeded maximum retries for route not found errors" in str(exc):
-                logger.error(
-                    f"Task execution failed due to repeated route not found errors: {exc}"
-                )
-            elif "AV reset timeout error" in str(exc):
-                logger.error(
-                    f"Task execution failed due to repeated AV reset timeout errors: {exc}"
-                )
-            client.task_invalid(task_id, reason=str(exc))
         else:
             err_msg = f"{type(exc).__name__}: {str(exc)}"
             logger.error("Task execution failed with error: %s", err_msg)
@@ -143,7 +138,12 @@ def main():
         claimed_scenario=claimed_scenario,
     )
 
-    output_dir = str(f"./outputs/job_{job_id}")
+    av = claimed_av.get("name", "unknown_av")
+    sim = claimed_simulator.get("name", "unknown_simulator")
+    scenario_title = claimed_scenario.get("title", "unknown_scenario")
+    cla = f"{av}_{sim}"
+
+    output_dir = str(f"./outputs/{cla}/{scenario_title.replace(' ', '_')}")
     os.makedirs(output_dir, exist_ok=True)
 
     service_manager = ApptainerServiceManager(id=f"job{job_id:02d}")

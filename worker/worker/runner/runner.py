@@ -1,16 +1,13 @@
 # sv/runner.py
-from time import sleep, time
-import traceback
-from typing import Any, Optional
+import importlib
 import logging
 from pathlib import Path
-import importlib
+from time import time
+from typing import Any, Optional
 
 from worker.runner.av_wrapper import AVWrapper
 from worker.runner.utils.sps import ScenarioPack
 from worker.runner.sim_wrapper import SimWrapper
-
-AV_RESET_TIMEOUT_MAX_RETRY = 10
 
 
 logger = logging.getLogger(__name__)
@@ -38,6 +35,8 @@ class Runner:
             "module_path": "sv.monitor.default:defaultMonitor",
             "config_path": "configs/monitor/default.yaml",
         }
+
+        self.job_id = task_spec.get("job_id", "unknown_job")
 
         self._dt_s = runtime_spec.get("dt", None)
         if self._dt_s is None:
@@ -107,59 +106,76 @@ class Runner:
         """
         try:
             if self.param_sampler is not None:
-                logger.debug("Starting parameter sampling execution.")
-                total = self.param_sampler.total_permutations()
-
-                logger.info(f"Total parameter combinations: {total}")
-
-                successed = False
-                av_reset_timeout_count = 0
-
-                for i in range(total):
-                    logger.info(f"Sampling iteration {i+1}/{total}")
-                    params = self.param_sampler.next()
-
-                    if params is None:
-                        logger.debug("Parameter sampling completed.")
-                        break
-
-                    logger.debug(f"Running scenario with parameters: {params}")
-                    try:
-                        self.run_concrete(f"iteration_{i+1}", self.sps, params)
-                        successed = True
-                    except RuntimeError as e:
-                        if "AV timed out during reset" in str(e):
-                            av_reset_timeout_count += 1
-                            logger.warning(
-                                f"AV reset timeout error count: {av_reset_timeout_count}/{AV_RESET_TIMEOUT_MAX_RETRY}"
-                            )
-                            if av_reset_timeout_count >= AV_RESET_TIMEOUT_MAX_RETRY:
-                                if not successed:
-                                    raise RuntimeError(
-                                        f"Exceeded maximum retries for AV reset timeout errors: {av_reset_timeout_count} occurrences. Aborting further execution."
-                                    ) from e
-                                else:
-                                    raise RuntimeError(
-                                        f"AV reset timeout error occurred at iteration {i+1} with error: {e} (previous iterations succeeded, but this one failed)"
-                                    ) from e
-                            continue
-                        else:
-                            err_msg = f"Scenario execution failed at iteration {i+1} with error: {e}"
-                            if successed:
-                                err_msg += f" (previous iterations succeeded, but this one failed)"
-                            raise RuntimeError(err_msg) from e
-                    else:
-                        av_reset_timeout_count = 0
+                logger.info("Running logical scenario with parameter sampling.")
+                self.run_logical()
             else:
-                logger.info("Running a single concrete scenario.")
-                try:
-                    self.run_concrete("concrete", self.sps)
-                except Exception as exc:
-                    raise exc
-
-            logger.info("Runner execution completed.")
+                logger.info(
+                    "Running single concrete scenario without parameter sampling."
+                )
+                self.concrete_wrapper("concrete", self.sps)
+        except Exception as e:
+            logger.error(f"Error during scenario execution: {e}")
+            raise e
+        else:
+            logger.info("Scenario execution completed successfully.")
         finally:
             self.close()
+
+    def run_logical(self):
+        logger.debug("Starting parameter sampling execution.")
+        total = self.param_sampler.total_permutations()
+
+        logger.info(f"Total parameter combinations: {total}")
+
+        for i in range(total):
+            logger.info(f"Sampling iteration {i+1}/{total}")
+            params = self.param_sampler.next()
+
+            if params is None:
+                logger.debug("Parameter sampling completed.")
+                break
+
+            logger.debug(f"Running scenario with parameters: {params}")
+
+            try:
+                self.concrete_wrapper(f"iteration_{i+1}", self.sps, params)
+            except RuntimeError as e:
+                logger.error(
+                    f"Scenario execution failed at iteration {i+1} with parameters: {params}"
+                )
+                raise e
+
+        logger.info("Completed all parameter combinations.")
+
+    def concrete_wrapper(
+        self,
+        output_related: str,
+        sps: ScenarioPack,
+        params: Optional[dict[str, Any]] = None,
+    ) -> None:
+        status_dir = Path(self.output_base / output_related / "status")
+        status_dir.mkdir(parents=True, exist_ok=True)
+
+        completed_file = status_dir / "completed.txt"
+        if completed_file.exists():
+            logger.warning(
+                f"Completed file already exists for {output_related}. Skipping execution."
+            )
+            return
+
+        try:
+            self.run_concrete(output_related, sps, params)
+        except Exception as e:
+            logger.error(f"Error in concrete_wrapper for {output_related}: {e}")
+            with open(status_dir / "error.txt", "a") as f:
+                f.write(
+                    f"Error at {time()} by job {self.job_id}: {type(e).__name__}: {str(e)}\n"
+                )
+            raise e
+        else:
+            with open(completed_file, "w") as f:
+                f.write(f"Completed at {time()} by job {self.job_id}\n")
+            logger.info(f"Scenario {output_related} completed successfully.")
 
     def run_concrete(
         self,
@@ -170,23 +186,14 @@ class Runner:
         """
         Run a single concrete scenario with the given parameters.
         """
+
         raw_obs = None
-        output_path = self.output_base / output_related
-        output_path.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Resetting simulator...")
-        try:
-            raw_obs = self.sim.reset(output_related, sps, params)
-        except Exception as e:
-            logger.error(f"Simulator reset failed: {e}")
-            raise e
+        raw_obs = self.sim.reset(output_related, sps, params)
 
         logger.info("Resetting AV...")
-        try:
-            ctrl_for_sim = self.av.reset(output_related, sps, raw_obs)
-        except Exception as e:
-            logger.error(f"AV reset failed: {e}")
-            raise e
+        ctrl_for_sim = self.av.reset(output_related, sps, raw_obs)
 
         dt_s = self._dt_s
         dt_ns = int(dt_s * 1e9)
@@ -199,43 +206,39 @@ class Runner:
 
         sim_time_ns = 0  # Simulation time in nanoseconds
         logger.info("Starting execution loop. using dt_s=%.3f", dt_s)
-        try:
-            real_start_time_s = time()
-            while True:
-                loop_start_time = time()
-                if self.sim.should_quit():
-                    logger.info("Simulator requested to quit.")
-                    break
-                elif self.av.should_quit():
-                    logger.info("AV requested to quit.")
-                    break
 
-                if use_real_time:
-                    t = time()
-                    dt_ns = int((t - prev) * 1e9)
-                    prev = t
+        real_start_time_s = time()
+        while True:
+            # loop_start_time = time()
+            if self.sim.should_quit():
+                logger.info("Simulator requested to quit.")
+                break
+            elif self.av.should_quit():
+                logger.info("AV requested to quit.")
+                break
 
-                raw_obs = self.sim.step(ctrl_for_sim, sim_time_ns)
-                ctrl_for_sim = self.av.step(raw_obs, sim_time_ns)
-                sim_time_ns += dt_ns
+            if use_real_time:
+                t = time()
+                dt_ns = int((t - prev) * 1e9)
+                prev = t
 
-                # cur_time_s = time()
-                # time_use_s = cur_time_s - real_start_time_s
-                # loop_need_time = time() - loop_start_time
-                # sleep_time_s = dt_s - loop_need_time
-                # if sleep_time_s > 0:
-                #     sleep(sleep_time_s)
+            raw_obs = self.sim.step(ctrl_for_sim, sim_time_ns)
+            ctrl_for_sim = self.av.step(raw_obs, sim_time_ns)
+            sim_time_ns += dt_ns
 
-                # print(
-                #     f"time use = {time_use_s:.2f} s, sim_time = {sim_time_ns / 1e9:.2f} s",
-                #     end="\r",
-                # )
+            # cur_time_s = time()
+            # time_use_s = cur_time_s - real_start_time_s
+            # loop_need_time = time() - loop_start_time
+            # sleep_time_s = dt_s - loop_need_time
+            # if sleep_time_s > 0:
+            #     sleep(sleep_time_s)
+
+            # print(
+            #     f"time use = {time_use_s:.2f} s, sim_time = {sim_time_ns / 1e9:.2f} s",
+            #     end="\r",
+            # )
 
             sim_time_need = time() - real_start_time_s
-
-        except Exception as e:
-            logger.error(f"Error during scenario execution: {e}")
-            raise e
 
         logger.info(
             f"Completed {sim_time_ns / 1e9:.2f} seconds scenario, using {sim_time_need:.2f} sec."
