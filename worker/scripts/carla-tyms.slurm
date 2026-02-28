@@ -22,7 +22,12 @@ echo "CPU Info:"
 echo
 
 echo "Start Time:    $(date)"
-uv run -m worker --av carla-agent
+
+CARLA_ROOT=${HOME}/carla-0.9.16/
+CARLA_PORT=$((SLURM_STEP_GPUS*10 + 2000))
+${CARLA_ROOT}/CarlaUE4.sh -renderoffscreen -nosound -quality-level=Low -fps=1 -graphicsadaptor=$SLURM_STEP_GPUS -carla-port=$CARLA_PORT
+CARLA_PORT=$CARLA_PORT uv run -m worker --av carla-agent
+
 if [ $? -ne 0 ]; then
     echo "Worker execution failed."
     exit 1

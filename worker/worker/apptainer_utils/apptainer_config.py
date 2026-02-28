@@ -99,6 +99,7 @@ class ApptainerServiceConfig:
     ) -> list[str]:
         cmd = ["apptainer", "instance", "start"]
         cmd.extend(["--env", f"ROS_DOMAIN_ID={id}"])
+        cmd.extend(["--env", f"CARLA_PORT={os.environ.get('CARLA_PORT')}"])
         for env_var, port in ports.items():
             cmd.extend(["--env", f"{env_var}={port}"])
 
