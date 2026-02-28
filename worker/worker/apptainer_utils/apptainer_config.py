@@ -97,7 +97,7 @@ class ApptainerServiceConfig:
     def get_start_command(
         self, instance_name: str, ports: dict[str, int], id: int
     ) -> list[str]:
-        cmd = ["apptainer", "instance", "start", "--containall"]
+        cmd = ["apptainer", "instance", "start"]
         cmd.extend(["--env", f"ROS_DOMAIN_ID={id}"])
         for env_var, port in ports.items():
             cmd.extend(["--env", f"{env_var}={port}"])

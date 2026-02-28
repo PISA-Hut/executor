@@ -3,6 +3,7 @@ import dotenv
 import logging
 import os
 from pprint import pprint
+import shutil
 from typing import Any
 
 from worker.apptainer_utils.apptainer_manager import ApptainerServiceManager
@@ -151,11 +152,15 @@ def main():
 
     av = claimed_av.get("name", "unknown_av")
     sim = claimed_simulator.get("name", "unknown_simulator")
+    map_name = claimed_map.get("name", "unknown_map")
     scenario_title = claimed_scenario.get("title", "unknown_scenario")
     cla = f"{av}_{sim}"
 
-    output_dir = str(f"./outputs/{cla}/{scenario_title.replace(' ', '_')}")
+    output_dir = str(f"./outputs/{cla}/{map_name}/{scenario_title.replace(' ', '_')}")
     os.makedirs(output_dir, exist_ok=True)
+    # append create
+    with open(os.path.join(output_dir, "status.txt"), "w") as f:
+        pprint(claimed_spec, stream=f)
 
     service_manager = ApptainerServiceManager(id=f"job{job_id:02d}")
     try:
