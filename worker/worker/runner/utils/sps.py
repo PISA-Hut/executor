@@ -132,9 +132,11 @@ class ScenarioPack:
                 scenario_spec.get("rmlib_path", "libesminiRMLib.so")
             ).resolve(),
         )
-        param_range_file = Path(scenario_folder) / f"{name}_param.xosc"
-        if param_range_file is not None:
-            param_range_file = Path(param_range_file).resolve()
+        pr_fname = Path(scenario_folder) / f"{name}_param.xosc"
+        if pr_fname.exists():
+            param_range_file = pr_fname
+        else:
+            param_range_file = None
 
         return cls(
             name=name,
