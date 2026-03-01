@@ -37,7 +37,7 @@ def _execute_runner_task(
         client.task_failed(task_id, reason="Task interrupted by user")
     except Exception as exc:
         if isinstance(exc, RuntimeError):
-            if "Failed to set Autoware route points." in str(exc):
+            if "Failed to set Autoware route points.".lower() or "not reachable from".lower() in str(exc).lower():
                 logger.error(
                     f"Task execution failed due to route not found error: {exc}"
                 )

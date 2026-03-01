@@ -4,8 +4,9 @@
 #SBATCH --error=outputs/stderr/job_%j
 #SBATCH --time=01:00:00
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=12
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=12G
+#SBATCH --gpus=1
 
 echo "=== SLURM TEST JOB ==="
 echo "Cluster:       $SLURM_CLUSTER_NAME"
@@ -23,14 +24,44 @@ echo
 
 echo "Start Time:    $(date)"
 
+GPU_ID=$SLURM_JOB_GPUS
+
+if [[ -z $GPU_ID ]]; then
+	echo "not set"
+	env
+	exit 1
+fi
+
+case "$GPU_ID" in
+	5|6)
+		echo "skip gpu $GPU_ID"
+		sleep 10000
+		exit 1
+		;;
+	*)
+		echo "run on gpu $GPU_ID"
+		;;
+esac
+
 CARLA_ROOT=${HOME}/carla-0.9.16/
-CARLA_PORT=$((SLURM_STEP_GPUS*10 + 2000))
-${CARLA_ROOT}/CarlaUE4.sh -renderoffscreen -nosound -quality-level=Low -fps=1 -graphicsadaptor=$SLURM_STEP_GPUS -carla-port=$CARLA_PORT
+CARLA_PORT=$((GPU_ID*10 + 2000))
+
+${CARLA_ROOT}/CarlaUE4.sh -renderoffscreen -nosound -quality-level=Low -fps=1 -graphicsadapter=$GPU_ID -carla-port=$CARLA_PORT &
+CARLA_PID=$!
+echo "Carla server runing on PID: ${CARLA_PID}"
+
+sleep 20
+echo "Starting runner"
+
+
 CARLA_PORT=$CARLA_PORT uv run -m worker --av carla-agent
 
 if [ $? -ne 0 ]; then
     echo "Worker execution failed."
     exit 1
 fi
+
+kill -2 ${CARLA_PID}
+kill -9 ${CARLA_PID}
 
 echo "End Time:      $(date)"

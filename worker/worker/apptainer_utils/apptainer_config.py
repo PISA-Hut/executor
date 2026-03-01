@@ -1,8 +1,7 @@
-"""Apptainer service configuration primitives."""
-
 from pathlib import Path
 from typing import Any, Optional
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
