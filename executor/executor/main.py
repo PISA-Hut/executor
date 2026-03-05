@@ -26,7 +26,6 @@ def _execute_runner_task(
     task_id: Any,
     runner_spec: dict[str, Any],
 ) -> None:
-    assert isinstance(runner_spec.get("scenario"), dict)
     pprint(runner_spec)
     try:
         runner = Runner(runner_spec)
