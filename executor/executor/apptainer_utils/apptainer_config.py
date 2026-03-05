@@ -1,7 +1,6 @@
 from pathlib import Path
 from typing import Any, Optional
 import logging
-import os
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -18,16 +17,14 @@ class ApptainerServiceConfig:
         self,
         sif_path: str,
         startup_wait: float = 2.0,
-        preferred_port: Optional[int] = None,
-        extra_ports: Optional[dict[str, int]] = None,
-        bind_mounts: Optional[list[tuple[str, str]]] = None,
+        bind_mounts: list[tuple[str, str]] = [],
+        extra_envs: dict[str, str] = {},
         nv_runtime: bool = False,
     ):
         self.sif_path = sif_path
         self.startup_wait = startup_wait
-        self.preferred_port = preferred_port or 8000
-        self.extra_ports = extra_ports or {}
-        self.bind_mounts = bind_mounts or []
+        self.bind_mounts = bind_mounts
+        self.extra_envs = extra_envs
         self.nv_runtime = nv_runtime
 
     @staticmethod
@@ -52,38 +49,23 @@ class ApptainerServiceConfig:
         component_spec: dict[str, Any],
     ) -> Optional["ApptainerServiceConfig"]:
         image_path = component_spec.get("image_path")
-        preferred_port = component_spec.get("preferred_port", 8000)
-        extra_ports = component_spec.get("extra_ports")
-        bind_mounts = component_spec.get("bind_mounts")
-
         if image_path is None:
-            print("Missing required field 'image_path' in component spec")
+            logger.error("Missing required field 'image_path' in component spec")
             return None
 
-        if not isinstance(extra_ports, dict):
-            extra_ports = {}
-
-        if not isinstance(bind_mounts, list):
-            bind_mounts = []
-
-        normalized_bind_mounts = [
-            (str(host), str(container)) for host, container in bind_mounts
-        ]
-
+        bind_mounts = component_spec.get("bind_mounts", [])
         nv_runtime = bool(component_spec.get("nv_runtime", False))
+        extra_envs = component_spec.get("extra_envs", {})
 
         try:
             return cls(
                 sif_path=cls._resolve_sif_path(str(image_path)),
-                preferred_port=int(preferred_port),
-                extra_ports={
-                    str(key): int(value) for key, value in extra_ports.items()
-                },
-                bind_mounts=normalized_bind_mounts,
+                bind_mounts=bind_mounts,
+                extra_envs=extra_envs,
                 nv_runtime=nv_runtime,
             )
         except (TypeError, ValueError):
-            print("Invalid component spec types for Apptainer service config")
+            logger.error("Invalid component spec types for Apptainer service config")
             return None
 
     def _append_runtime_flags(self, cmd: list[str]) -> None:
@@ -94,13 +76,11 @@ class ApptainerServiceConfig:
             cmd.append("--nv")
 
     def get_start_command(
-        self, instance_name: str, ports: dict[str, int], id: int
+        self, instance_name: str, env_vars: dict[str, Any]
     ) -> list[str]:
         cmd = ["apptainer", "instance", "start"]
-        cmd.extend(["--env", f"ROS_DOMAIN_ID={id}"])
-        cmd.extend(["--env", f"CARLA_PORT={os.environ.get('CARLA_PORT')}"])
-        for env_var, port in ports.items():
-            cmd.extend(["--env", f"{env_var}={port}"])
+        for env_var, value in env_vars.items():
+            cmd.extend(["--env", f"{env_var}={value}"])
 
         self._append_runtime_flags(cmd)
         cmd.extend([self.sif_path, instance_name])

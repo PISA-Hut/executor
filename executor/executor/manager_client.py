@@ -116,9 +116,7 @@ class ManagerClient:
         return self._register_executor(info)
 
     def task_failed(self, task_id: int, reason: str):
-        logger.info(
-            f"Reporting task failure for task ID {task_id} with reason: {reason}"
-        )
+        logger.info(f"Reporting task failure for task ID {task_id}")
         r = requests.post(
             f"{self.manager_url}/task/failed",
             json={
@@ -130,9 +128,7 @@ class ManagerClient:
         r.raise_for_status()
 
     def task_invalid(self, task_id: int, reason: str):
-        logger.info(
-            f"Reporting task invalid for task ID {task_id} with reason: {reason}"
-        )
+        logger.info(f"Reporting task invalid for task ID {task_id}")
         r = requests.post(
             f"{self.manager_url}/task/invalid",
             json={

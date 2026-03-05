@@ -3,7 +3,6 @@ import dotenv
 import logging
 import os
 from pprint import pprint
-import shutil
 from typing import Any
 
 from executor.apptainer_utils.apptainer_manager import ApptainerServiceManager
@@ -161,9 +160,11 @@ def main():
     scenario_title = claimed_scenario.get("title", "unknown_scenario")
     cla = f"{av}_{sim}"
 
-    output_dir = str(f"./outputs/{cla}/{map_name}/{scenario_title.replace(' ', '_')}")
+    output_dir = str(
+        f"./outputs/{cla}/{map_name}-{scenario_title.replace(' ', '_')}-{task_id}"
+    )
     os.makedirs(output_dir, exist_ok=True)
-    # append create
+
     with open(os.path.join(output_dir, "status.txt"), "w") as f:
         pprint(claimed_spec, stream=f)
 
