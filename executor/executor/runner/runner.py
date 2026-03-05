@@ -166,7 +166,9 @@ class Runner:
         try:
             self.run_concrete(output_related, sps, params)
         except Exception as e:
-            logger.error(f"Error in concrete_wrapper for {output_related}: {e}")
+            logger.error(
+                f"Error in concrete scenario execution for {output_related}: {e}"
+            )
             with open(status_dir / "error.txt", "a") as f:
                 f.write(
                     f"Error at {time()} by job {self.job_id}: {type(e).__name__}: {str(e)}\n"

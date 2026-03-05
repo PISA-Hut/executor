@@ -67,7 +67,7 @@ def build_runner_spec(
 
     return {
         "runtime": {
-            "dt": 0.01,
+            "dt": 0.05,
         },
         "task": {
             "job_id": str(job_id),

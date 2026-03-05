@@ -6,8 +6,8 @@ import subprocess
 import time
 from typing import Any, Optional
 
-from worker.utils import resolve_host_path
-from worker.apptainer_utils.apptainer_config import ApptainerServiceConfig
+from executor.utils import resolve_host_path
+from executor.apptainer_utils.apptainer_config import ApptainerServiceConfig
 
 logger = logging.getLogger(__name__)
 

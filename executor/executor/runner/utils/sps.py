@@ -8,8 +8,8 @@ import yaml
 from sbsvf_api import path_pb2, scenario_pb2
 
 
-from worker.runner.utils.util import get_cfg
-from worker.runner.utils.position import PositionFactory, Position
+from executor.runner.utils.util import get_cfg
+from executor.runner.utils.position import PositionFactory, Position
 
 
 @dataclass

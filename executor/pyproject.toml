@@ -1,7 +1,7 @@
 [project]
-name = "worker"
+name = "executor"
 version = "0.1.0"
-description = "Add your description here"
+description = "PISA Scenario Queue Executor"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

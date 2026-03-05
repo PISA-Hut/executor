@@ -1,5 +1,5 @@
 .venv/
-worker/**/*.py[cod]
+executor/**/*.py[cod]
 
 .env
 
