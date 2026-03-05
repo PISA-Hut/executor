@@ -30,10 +30,16 @@ class ManagerClient:
             raise ValueError(f"Expected a list of {entity_type}s, got: {entities}")
         return {entity["name"]: entity["id"] for entity in entities}
 
-    def _register_worker(self, info: dict[str, str | int]) -> dict[str, str | int]:
+    def _register_executor(self, info: dict[str, str | int]) -> dict[str, str | int]:
+        payload = {
+            "job_id": int(info.get("job_id", 0)),
+            "array_id": int(info.get("array_id", 0)),
+            "node_list": str(info.get("node_list", "unknown")),
+            "hostname": str(info.get("hostname", "unknown")),
+        }
         r = requests.post(
-            f"{self.manager_url}/worker",
-            json=info,
+            f"{self.manager_url}/executor",
+            json=payload,
             timeout=self.timeout,
         )
         r.raise_for_status()
@@ -55,7 +61,7 @@ class ManagerClient:
 
     def _claim_task_by_id(
         self,
-        worker_id: int,
+        executor_id: int,
         map_id: int | None = None,
         scenario_id: int | None = None,
         av_id: int | None = None,
@@ -63,9 +69,9 @@ class ManagerClient:
         sampler_id: int | None = None,
     ) -> dict[str, dict[str, Any]] | None:
         payload = {
-            "worker_id": worker_id,
+            "executor_id": executor_id,
             "map_id": map_id,
-            "scenario_id": scenario_id,  # scenario_id is not supported in claim by ID
+            "scenario_id": scenario_id,
             "av_id": av_id,
             "simulator_id": simulator_id,
             "sampler_id": sampler_id,
@@ -87,17 +93,17 @@ class ManagerClient:
 
     def claim_task_spec(
         self,
-        slurm_info: dict[str, str | int],
+        executor_info: dict[str, str | int],
         map_name: str | None = None,
         scenario_id: int | None = None,
         av_name: str | None = None,
         simulator_name: str | None = None,
         sampler_name: str | None = None,
     ) -> dict[str, dict[str, Any]] | None:
-        worker_info = self._register_worker(slurm_info)
-        logger.info(f"Registered worker with ID: {worker_info['id']}")
+        executor = self._register_executor(executor_info)
+        logger.info("Registered executor with ID: %s", executor["id"])
         return self._claim_task_by_id(
-            worker_id=worker_info["id"],
+            executor_id=executor["id"],
             map_id=self._get_id_by_name("map", map_name),
             scenario_id=scenario_id,
             av_id=self._get_id_by_name("av", av_name),
@@ -105,10 +111,12 @@ class ManagerClient:
             sampler_id=self._get_id_by_name("sampler", sampler_name),
         )
 
+    # Backward-compatible alias.
+    def _register_worker(self, info: dict[str, str | int]) -> dict[str, str | int]:
+        return self._register_executor(info)
+
     def task_failed(self, task_id: int, reason: str):
-        logger.info(
-            f"Reporting task failure for task ID {task_id} with reason: {reason}"
-        )
+        logger.info(f"Reporting task failure for task ID {task_id}")
         r = requests.post(
             f"{self.manager_url}/task/failed",
             json={
@@ -120,9 +128,7 @@ class ManagerClient:
         r.raise_for_status()
 
     def task_invalid(self, task_id: int, reason: str):
-        logger.info(
-            f"Reporting task invalid for task ID {task_id} with reason: {reason}"
-        )
+        logger.info(f"Reporting task invalid for task ID {task_id}")
         r = requests.post(
             f"{self.manager_url}/task/invalid",
             json={

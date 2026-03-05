@@ -11,8 +11,8 @@ from sbsvf_api import (
     path_pb2,
 )
 
-from worker.runner.utils.sps import ScenarioPack
-from worker.runner.utils.util import get_cfg
+from executor.runner.utils.sps import ScenarioPack
+from executor.runner.utils.util import get_cfg
 
 logger = logging.getLogger(__name__)
 

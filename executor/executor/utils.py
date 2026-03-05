@@ -34,13 +34,16 @@ def build_services_spec(
         "simulator": {
             "name": claimed_simulator.get("name"),
             "image_path": claimed_simulator.get("image_path"),
-            "extra_ports": copy.deepcopy(claimed_simulator.get("extra_ports")),
             "nv_runtime": claimed_simulator.get("nv_runtime", False),
+            "ros_runtime": claimed_simulator.get("ros_runtime", False),
+            "carla_runtime": claimed_simulator.get("carla_runtime", False),
         },
         "av": {
             "name": claimed_av.get("name"),
             "image_path": claimed_av.get("image_path"),
             "nv_runtime": claimed_av.get("nv_runtime", False),
+            "ros_runtime": claimed_av.get("ros_runtime", False),
+            "carla_runtime": claimed_av.get("carla_runtime", False),
         },
         "map": {
             "osm_path": claimed_map.get("osm_path"),
@@ -67,7 +70,7 @@ def build_runner_spec(
 
     return {
         "runtime": {
-            "dt": 0.01,
+            "dt": 0.05,
         },
         "task": {
             "job_id": str(job_id),

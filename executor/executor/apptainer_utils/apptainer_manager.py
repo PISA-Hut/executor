@@ -6,8 +6,8 @@ import subprocess
 import time
 from typing import Any, Optional
 
-from worker.utils import resolve_host_path
-from worker.apptainer_utils.apptainer_config import ApptainerServiceConfig
+from executor.utils import resolve_host_path
+from executor.apptainer_utils.apptainer_config import ApptainerServiceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,12 @@ class ApptainerServiceManager:
         self.running_instances: dict[str, dict[str, int]] = {}
         self.component_to_instance: dict[str, str] = {}
 
+    def _resolve_ros_domain_id(self) -> int:
+        try:
+            return int(self.id[-2:])
+        except ValueError:
+            return abs(hash(self.id)) % 232
+
     @staticmethod
     def _run_command(
         command: list[str], timeout: int = 10
@@ -50,23 +56,29 @@ class ApptainerServiceManager:
             timeout=timeout,
         )
 
-    def _allocate_ports(
-        self, config: ApptainerServiceConfig
+    def _allocate_runtime_envs(
+        self, component_spec: dict[str, Any]
     ) -> Optional[dict[str, int]]:
-        allocated_port = find_free_port(start_port=config.preferred_port)
-        if allocated_port is None:
+        service_port = find_free_port()
+        if service_port is None:
             return None
 
-        allocated_ports = {"PORT": allocated_port}
-        for env_var, preferred_start in config.extra_ports.items():
-            extra_port = find_free_port(start_port=preferred_start)
-            if extra_port is None:
-                logger.error("Failed to find a free port for %s", env_var)
+        runtime_envs: dict[str, int] = {"PORT": service_port}
+        if bool(component_spec.get("carla_runtime", False)):
+            carla_port = None
+            for _ in range(5):
+                candidate_port = find_free_port()
+                if candidate_port is not None and candidate_port != service_port:
+                    carla_port = candidate_port
+                    break
+            if carla_port is None:
                 return None
-            allocated_ports[env_var] = extra_port
-            logger.info("Allocated %s: %s", env_var, extra_port)
+            runtime_envs["CARLA_PORT"] = carla_port
 
-        return allocated_ports
+        if bool(component_spec.get("ros_runtime", False)):
+            runtime_envs["ROS_DOMAIN_ID"] = self._resolve_ros_domain_id()
+
+        return runtime_envs
 
     @staticmethod
     def _require_existing_path_from_spec(
@@ -110,8 +122,8 @@ class ApptainerServiceManager:
             logger.error("Invalid task spec for %s: %s", component_kind, component_name)
             return None
 
-        allocated_ports = self._allocate_ports(config)
-        if allocated_ports is None:
+        runtime_envs = self._allocate_runtime_envs(component_spec)
+        if runtime_envs is None:
             logger.error(
                 "Failed to find a free port for %s: %s",
                 component_kind,
@@ -119,13 +131,14 @@ class ApptainerServiceManager:
             )
             return None
 
-        allocated_port = allocated_ports["PORT"]
+        start_envs: dict[str, Any] = dict(config.extra_envs)
+        start_envs.update(runtime_envs)
+
+        allocated_port = runtime_envs["PORT"]
         service_name = f"{component_name}-{self.id}-{allocated_port}"
 
         try:
-            command = config.get_start_command(
-                service_name, allocated_ports, int(self.id[-2:])
-            )
+            command = config.get_start_command(service_name, start_envs)
             logger.info("Running command: %s", " ".join(command))
             proc = self._run_command(command)
             if proc.returncode != 0:
@@ -137,7 +150,7 @@ class ApptainerServiceManager:
             service_url = f"localhost:{allocated_port}"
             logger.info("%s service available at: %s", component_kind, service_url)
 
-            self.running_instances[service_name] = allocated_ports
+            self.running_instances[service_name] = runtime_envs
             self.component_to_instance[f"{component_kind}:{component_name}"] = (
                 service_name
             )

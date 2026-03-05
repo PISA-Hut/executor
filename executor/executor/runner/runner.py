@@ -5,9 +5,9 @@ from pathlib import Path
 from time import time
 from typing import Any, Optional
 
-from worker.runner.av_wrapper import AVWrapper
-from worker.runner.utils.sps import ScenarioPack
-from worker.runner.sim_wrapper import SimWrapper
+from executor.runner.av_wrapper import AVWrapper
+from executor.runner.utils.sps import ScenarioPack
+from executor.runner.sim_wrapper import SimWrapper
 
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,13 @@ class Runner:
         self.output_base.mkdir(parents=True, exist_ok=True)
         logger.info(f"Output base directory set to: {self.output_base}")
 
-        self.sps = ScenarioPack.from_dict(scenario_spec, map_spec)
+        try:
+            self.sps = ScenarioPack.from_dict(scenario_spec, map_spec)
+        except Exception as exc:
+            logger.exception(
+                "Failed to create ScenarioPack from scenario and map specifications."
+            )
+            raise exc
 
         try:
             self.sim = SimWrapper(
@@ -166,7 +172,9 @@ class Runner:
         try:
             self.run_concrete(output_related, sps, params)
         except Exception as e:
-            logger.error(f"Error in concrete_wrapper for {output_related}: {e}")
+            logger.error(
+                f"Error in concrete scenario execution for {output_related}: {e}"
+            )
             with open(status_dir / "error.txt", "a") as f:
                 f.write(
                     f"Error at {time()} by job {self.job_id}: {type(e).__name__}: {str(e)}\n"

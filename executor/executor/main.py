@@ -3,14 +3,13 @@ import dotenv
 import logging
 import os
 from pprint import pprint
-import shutil
 from typing import Any
 
-from worker.apptainer_utils.apptainer_manager import ApptainerServiceManager
-from worker.manager_client import ManagerClient
-from worker.runner.runner import Runner
-from worker.system import collect_worker_identity
-from worker.utils import build_runner_spec, build_services_spec
+from executor.apptainer_utils.apptainer_manager import ApptainerServiceManager
+from executor.manager_client import ManagerClient
+from executor.runner.runner import Runner
+from executor.system import collect_executor_identity
+from executor.utils import build_runner_spec, build_services_spec
 
 dotenv.load_dotenv()
 
@@ -40,6 +39,8 @@ def _execute_runner_task(
             if (
                 "Failed to set Autoware route points.".lower() in str(exc).lower()
                 or "not reachable from".lower() in str(exc).lower()
+                or "Failed to find a reachable route candidate".lower()
+                in str(exc).lower()
             ):
                 logger.error(
                     f"Task execution failed due to route not found error: {exc}"
@@ -66,7 +67,7 @@ def parse_args(
     samplers: dict[str, int],
 ) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Worker process that claims and executes tasks from the manager."
+        description="Executor process that claims and executes tasks from the manager."
     )
     parser.add_argument(
         "--map",
@@ -119,13 +120,13 @@ def main():
     args = parse_args(client.maps, client.avs, client.simulators, client.samplers)
     logger.setLevel(getattr(logging, args.log_level.upper()))
 
-    logger.info("Starting worker...")
-    slurm_info = collect_worker_identity()
+    logger.info("Starting executor...")
+    executor_info = collect_executor_identity()
 
-    job_id = int(slurm_info.get("job_id", "unknown"))
+    job_id = int(executor_info.get("job_id", "unknown"))
 
     claimed_spec = client.claim_task_spec(
-        slurm_info,
+        executor_info,
         map_name=args.map,
         scenario_id=args.scenario_id,
         av_name=args.av,
@@ -134,7 +135,7 @@ def main():
     )
 
     if claimed_spec is None:
-        logger.info("No task claimed. Worker will exit.")
+        logger.info("No task claimed. Executor will exit.")
         return
 
     task_id = claimed_spec.get("task", {}).get("id")
@@ -159,9 +160,11 @@ def main():
     scenario_title = claimed_scenario.get("title", "unknown_scenario")
     cla = f"{av}_{sim}"
 
-    output_dir = str(f"./outputs/{cla}/{map_name}/{scenario_title.replace(' ', '_')}")
+    output_dir = str(
+        f"./outputs/{cla}/{map_name}-{scenario_title.replace(' ', '_')}-{task_id}"
+    )
     os.makedirs(output_dir, exist_ok=True)
-    # append create
+
     with open(os.path.join(output_dir, "status.txt"), "w") as f:
         pprint(claimed_spec, stream=f)
 
@@ -185,7 +188,7 @@ def main():
         )
         _execute_runner_task(client=client, task_id=task_id, runner_spec=runner_spec)
     except Exception as exc:
-        logger.error("Worker failed with error: %s", exc)
+        logger.error("Executor failed with error: %s", exc)
         if task_id is not None:
             err_msg = f"{type(exc).__name__}: {str(exc)}"
             client.task_failed(task_id, reason=err_msg)
