@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 class ManagerClient:
     def __init__(self):
         self.manager_url = os.getenv("MANAGER_URL")
+        assert self.manager_url, "MANAGER_URL environment variable must be set"
         self.timeout = int(os.getenv("TIMEOUT", "30"))
 
         self.avs: dict[str, int] = {}

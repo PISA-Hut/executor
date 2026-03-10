@@ -1,9 +1,0 @@
-.venv/
-executor/**/*.py[cod]
-
-.env
-
-logs/
-outputs/
-
-libesminiRMLib.so
