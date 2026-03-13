@@ -5,9 +5,10 @@ import os
 from pprint import pprint
 from typing import Any
 
+from runner.runner import Runner
+
 from executor.apptainer_utils.apptainer_manager import ApptainerServiceManager
 from executor.manager_client import ManagerClient
-from executor.runner.runner import Runner
 from executor.system import collect_executor_identity
 from executor.utils import build_runner_spec, build_services_spec
 
