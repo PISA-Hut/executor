@@ -7,10 +7,10 @@ from typing import Any
 
 from runner.runner import Runner
 
-from executor.apptainer_utils.apptainer_manager import ApptainerServiceManager
-from executor.manager_client import ManagerClient
-from executor.system import collect_executor_identity
-from executor.utils import build_runner_spec, build_services_spec
+from .apptainer_utils.apptainer_manager import ApptainerServiceManager
+from .manager_client import ManagerClient
+from .system import collect_executor_identity
+from .utils import build_runner_spec, build_services_spec
 
 dotenv.load_dotenv()
 
@@ -44,6 +44,15 @@ def _execute_runner_task(
             ):
                 logger.error(
                     f"Task execution failed due to route not found error: {exc}"
+                )
+                client.task_invalid(task_id, reason=str(exc))
+                return
+            elif (
+                "Exception calling application: failed validating <Element".lower()
+                in str(exc).lower()
+            ):
+                logger.error(
+                    f"Task execution failed due to scenario validation error: {exc}"
                 )
                 client.task_invalid(task_id, reason=str(exc))
                 return
