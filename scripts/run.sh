@@ -9,7 +9,7 @@
 #SBATCH --mem=12G
 
 source "$SLURM_SUBMIT_DIR/scripts/utils.sh"
-header
+prologue
 
 
 echo Args: $@
@@ -21,4 +21,4 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-echo "End Time:      $(date)"
+epilogue
