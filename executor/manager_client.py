@@ -108,10 +108,6 @@ class ManagerClient:
             sampler_id=self._get_id_by_name("sampler", sampler_name),
         )
 
-    # Backward-compatible alias.
-    def _register_worker(self, info: dict[str, str | int]) -> dict[str, str | int]:
-        return self._register_executor(info)
-
     def task_failed(self, task_id: int, reason: str):
         logger.info(f"Reporting task failure for task ID {task_id}")
         r = requests.post(

@@ -1,19 +1,32 @@
 import argparse
-import sys
 import dotenv
 from loguru import logger
 import os
 from pprint import pprint
+import sys
+import time
 from typing import Any
 
 from runner.runner import Runner
 
 from executor.apptainer_utils.apptainer_manager import ApptainerServiceManager
+from executor.docker_utils.docker_manager import DockerServiceManager
 from executor.manager_client import ManagerClient
+from executor.service_manager import ServiceManager
 from executor.system import collect_executor_identity
 from executor.utils import build_runner_spec, build_services_spec
 
 dotenv.load_dotenv()
+
+
+def _create_service_manager(backend: str, job_id: int) -> ServiceManager:
+    service_manager_id = f"job{job_id:02d}"
+    if backend == "apptainer":
+        return ApptainerServiceManager(id=service_manager_id)
+    if backend == "docker":
+        return DockerServiceManager(id=service_manager_id)
+
+    raise ValueError(f"Unsupported backend: {backend}")
 
 
 def _execute_runner_task(
@@ -124,6 +137,13 @@ def parse_args(
         default="INFO",
         help="Logging level for the executor (default: INFO)",
     )
+    parser.add_argument(
+        "--backend",
+        type=str,
+        choices=["apptainer", "docker"],
+        default="apptainer",
+        help="Container backend to use for services (default: apptainer)",
+    )
     return parser.parse_args()
 
 
@@ -189,7 +209,7 @@ def main():
     with open(os.path.join(output_dir, "status.txt"), "w") as f:
         pprint(claimed_spec, stream=f)
 
-    service_manager = ApptainerServiceManager(id=f"job{job_id:02d}")
+    service_manager = _create_service_manager(args.backend, job_id)
     try:
         started_specs = service_manager.start(
             services_spec=services_spec,

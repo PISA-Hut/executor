@@ -2,12 +2,12 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from executor.apptainer_utils.apptainer_config import ApptainerServiceConfig
+from executor.docker_utils.docker_config import DockerServiceConfig
 from executor.service_manager import ServiceManager
 
 
-class ApptainerServiceManager(ServiceManager):
-    """Start/stop Apptainer services for simulator and AV."""
+class DockerServiceManager(ServiceManager):
+    """Start/stop Docker services for simulator and AV."""
 
     def _start_backend_service(
         self,
@@ -16,7 +16,7 @@ class ApptainerServiceManager(ServiceManager):
         component_spec: dict[str, Any],
         runtime_envs: dict[str, Any],
     ) -> Optional[dict[str, Any]]:
-        config = ApptainerServiceConfig.from_component_spec(component_spec)
+        config = DockerServiceConfig.from_component_spec(component_spec)
         if config is None:
             logger.error(f"Invalid task spec for {component_kind}: {component_name}")
             return None
@@ -28,15 +28,16 @@ class ApptainerServiceManager(ServiceManager):
         service_name = f"{component_name}-{self.id}-{allocated_port}"
 
         try:
-            command = config.get_start_command(service_name, start_envs)
+            command = config.get_start_command(service_name, start_envs, allocated_port)
             logger.debug(f"Running command: {' '.join(command)}")
             proc = self._run_command(command)
             if proc.returncode != 0:
-                logger.error(f"Failed to start Apptainer instance: {proc.stderr}")
+                logger.error(f"Failed to start Docker container: {proc.stderr}")
                 return None
 
             if not self._wait_for_service_start(allocated_port):
                 logger.error(f"Service failed to start: {service_name}")
+                self._stop_backend_service(service_name)
                 return None
 
             service_url = f"localhost:{allocated_port}"
@@ -54,18 +55,16 @@ class ApptainerServiceManager(ServiceManager):
                 "service_name": service_name,
             }
         except Exception as exc:
-            logger.exception(f"Failed to start Apptainer service: {exc}")
+            logger.exception(f"Failed to start Docker service: {exc}")
+            self._stop_backend_service(service_name)
             return None
 
     def _stop_backend_service(self, service_name: str) -> None:
-        command = ApptainerServiceConfig.get_stop_command(service_name)
-        logger.info(f"Stopping Apptainer instance: {service_name}")
+        command = DockerServiceConfig.get_stop_command(service_name)
+        logger.info(f"Stopping Docker container: {service_name}")
         try:
             proc = self._run_command(command)
             if proc.returncode != 0:
-                logger.error(f"Failed to stop Apptainer instance: {proc.stderr}")
+                logger.error(f"Failed to stop Docker container: {proc.stderr}")
         except Exception as exc:
-            logger.error(f"Failed to stop Apptainer instance {service_name}: {exc}")
-
-        self.running_instances.clear()
-        self.component_to_instance.clear()
+            logger.error(f"Failed to stop Docker container {service_name}: {exc}")

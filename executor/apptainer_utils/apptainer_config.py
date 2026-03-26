@@ -41,7 +41,7 @@ class ApptainerServiceConfig:
         cls,
         component_spec: dict[str, Any],
     ) -> Optional["ApptainerServiceConfig"]:
-        image_path = component_spec.get("image_path")
+        image_path = component_spec.get("image_path").get("apptainer")
         if image_path is None:
             logger.error("Missing required field 'image_path' in component spec")
             return None
@@ -61,21 +61,20 @@ class ApptainerServiceConfig:
             logger.error("Invalid component spec types for Apptainer service config")
             return None
 
-    def _append_runtime_flags(self, cmd: list[str]) -> None:
+    def get_start_command(
+        self, instance_name: str, env_vars: dict[str, Any]
+    ) -> list[str]:
+        cmd = ["apptainer", "instance", "start"]
+
+        for env_var, value in env_vars.items():
+            cmd.extend(["--env", f"{env_var}={value}"])
+
         for host_path, container_path in self.bind_mounts:
             cmd.extend(["--bind", f"{host_path}:{container_path}"])
 
         if self.nv_runtime:
             cmd.append("--nv")
 
-    def get_start_command(
-        self, instance_name: str, env_vars: dict[str, Any]
-    ) -> list[str]:
-        cmd = ["apptainer", "instance", "start"]
-        for env_var, value in env_vars.items():
-            cmd.extend(["--env", f"{env_var}={value}"])
-
-        self._append_runtime_flags(cmd)
         cmd.extend([self.sif_path, instance_name])
         return cmd
 
