@@ -120,13 +120,8 @@ def parse_args(
     )
     parser.add_argument(
         "--log-level",
-        type=str,
+        type=str.lower,
         choices=[
-            "DEBUG",
-            "INFO",
-            "WARNING",
-            "ERROR",
-            "CRITICAL",
             "debug",
             "info",
             "warning",
@@ -151,7 +146,6 @@ def main():
     client.fetch()  # Fetch AVs, simulators, and samplers to cache their IDs
 
     args = parse_args(client.maps, client.avs, client.simulators, client.samplers)
-
     logger.remove()  # Remove default logger
     logger.add(
         sink=sys.stdout,
@@ -161,6 +155,8 @@ def main():
     )
 
     logger.debug("Starting executor...")
+    logger.debug(f"Arguments: {args}")
+
     executor_info = collect_executor_identity()
 
     job_id = int(executor_info.get("job_id", "unknown"))

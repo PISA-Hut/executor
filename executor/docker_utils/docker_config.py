@@ -1,3 +1,4 @@
+import os
 from typing import Any, Optional
 
 from loguru import logger
@@ -18,12 +19,22 @@ class DockerServiceConfig:
         self.extra_envs = extra_envs or {}
         self.nv_runtime = nv_runtime
 
+    @staticmethod
+    def _resolve_image_path(component_spec: dict[str, Any]) -> Optional[str]:
+        image_path = component_spec.get("image_path")
+        if isinstance(image_path, dict):
+            resolved = image_path.get("docker")
+            return str(resolved) if resolved is not None else None
+        if isinstance(image_path, str):
+            return image_path
+        return None
+
     @classmethod
     def from_component_spec(
         cls,
         component_spec: dict[str, Any],
     ) -> Optional["DockerServiceConfig"]:
-        image = component_spec.get("image_path").get("docker")
+        image = cls._resolve_image_path(component_spec)
         if image is None:
             logger.error("Missing required field 'image_path' in component spec")
             return None
@@ -49,7 +60,20 @@ class DockerServiceConfig:
         env_vars: dict[str, Any],
         port: int,
     ) -> list[str]:
-        cmd = ["docker", "run", "-d", "--rm", "--name", service_name]
+        cmd = [
+            "docker",
+            "run",
+            "-d",
+            "--rm",
+            "--log-driver",
+            "syslog",
+            "--log-opt",
+            "syslog-address=udp://localhost:514",
+            "--name",
+            service_name,
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
+        ]
 
         for env_var, value in env_vars.items():
             cmd.extend(["-e", f"{env_var}={value}"])

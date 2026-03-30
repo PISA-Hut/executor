@@ -66,6 +66,3 @@ class ApptainerServiceManager(ServiceManager):
                 logger.error(f"Failed to stop Apptainer instance: {proc.stderr}")
         except Exception as exc:
             logger.error(f"Failed to stop Apptainer instance {service_name}: {exc}")
-
-        self.running_instances.clear()
-        self.component_to_instance.clear()

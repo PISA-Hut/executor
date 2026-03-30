@@ -232,3 +232,4 @@ class ServiceManager(ABC):
         for service_name in list(self.running_instances.keys()):
             self._stop_backend_service(service_name)
             self.running_instances.pop(service_name, None)
+        self.component_to_instance.clear()

@@ -36,12 +36,22 @@ class ApptainerServiceConfig:
 
         return str(dot_sifs)
 
+    @staticmethod
+    def _resolve_image_path(component_spec: dict[str, Any]) -> Optional[str]:
+        image_path = component_spec.get("image_path")
+        if isinstance(image_path, dict):
+            resolved = image_path.get("apptainer")
+            return str(resolved) if resolved is not None else None
+        if isinstance(image_path, str):
+            return image_path
+        return None
+
     @classmethod
     def from_component_spec(
         cls,
         component_spec: dict[str, Any],
     ) -> Optional["ApptainerServiceConfig"]:
-        image_path = component_spec.get("image_path").get("apptainer")
+        image_path = cls._resolve_image_path(component_spec)
         if image_path is None:
             logger.error("Missing required field 'image_path' in component spec")
             return None
