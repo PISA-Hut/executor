@@ -1,5 +1,6 @@
 import argparse
 import dotenv
+import json
 from loguru import logger
 import os
 from pprint import pprint
@@ -200,9 +201,8 @@ def main():
         f"./outputs/{cla}/{map_name}-{scenario_title.replace(' ', '_')}-{task_id}"
     )
     os.makedirs(output_dir, exist_ok=True)
-
-    with open(os.path.join(output_dir, "status.txt"), "w") as f:
-        pprint(claimed_spec, stream=f)
+    with open(os.path.join(output_dir, "claimed_spec.json"), "w") as f:
+        json.dump(claimed_spec, f, indent=4)
 
     service_manager = _create_service_manager(args.backend, job_id)
     try:
@@ -222,6 +222,12 @@ def main():
             job_id=job_id,
             output_dir=output_dir,
         )
+        with open(os.path.join(output_dir, "runner_spec.json"), "w") as f:
+            json.dump(runner_spec, f, indent=4)
+        logger.debug(
+            f"Runner spec available at: {os.path.join(output_dir, 'runner_spec.json')}"
+        )
+
         _execute_runner_task(client=client, task_id=task_id, runner_spec=runner_spec)
     except Exception as exc:
         logger.error(f"Executor failed with error: {exc}")
