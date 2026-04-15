@@ -3,8 +3,6 @@ import dotenv
 import json
 from loguru import logger
 import os
-from pprint import pprint
-import re
 import sys
 from typing import Any
 
@@ -15,19 +13,13 @@ from executor.docker_utils.docker_manager import DockerServiceManager
 from executor.manager_client import ManagerClient
 from executor.service_manager import ServiceManager
 from executor.system import collect_executor_identity
-from executor.utils import build_runner_spec, build_services_spec
+from executor.utils import (
+    build_runner_spec,
+    build_services_spec,
+    sanitize_path,
+)
 
 dotenv.load_dotenv()
-
-
-def _sanitize_path_component(name: str) -> str:
-    """Sanitize a string for safe use as a single directory name component."""
-    name = name.replace(os.sep, "_")
-    if os.altsep:
-        name = name.replace(os.altsep, "_")
-    name = re.sub(r"\.{2,}", "_", name)
-    name = name.replace(" ", "_")
-    return name
 
 
 def _create_service_manager(backend: str, job_id: int) -> ServiceManager:
@@ -211,7 +203,7 @@ def main():
     cla = f"{av}_{sim}"
 
     output_dir = str(
-        f"./outputs/{cla}/{task_id}-{_sanitize_path_component(map_name)}-{_sanitize_path_component(scenario_title)}"
+        f"./outputs/{cla}/{task_id}-{sanitize_path(map_name)}-{sanitize_path(scenario_title)}"
     )
     os.makedirs(output_dir, exist_ok=True)
     with open(os.path.join(output_dir, "claimed_spec.json"), "w") as f:
