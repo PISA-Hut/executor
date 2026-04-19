@@ -8,8 +8,8 @@ dependencies = [
     "dotenv>=0.9.9",
     "loguru>=0.7.3",
     "requests>=2.32.5",
-    "runner>=0.1.6",
+    "simcore>=0.2.0",
 ]
 
 [tool.uv.sources]
-runner = { git = "https://github.com/PISA-Hut/runner.git" }
+simcore = { git = "https://github.com/pisa-hut/simulation-core.git" }

@@ -59,6 +59,7 @@ class ManagerClient:
     def _claim_task_by_id(
         self,
         executor_id: int,
+        task_id: int | None = None,
         av_id: int | None = None,
         simulator_id: int | None = None,
         map_id: int | None = None,
@@ -67,6 +68,7 @@ class ManagerClient:
     ) -> dict[str, dict[str, Any]] | None:
         payload = {
             "executor_id": executor_id,
+            "task_id": task_id,
             "av_id": av_id,
             "simulator_id": simulator_id,
             "map_id": map_id,
@@ -91,6 +93,7 @@ class ManagerClient:
     def claim_task_spec(
         self,
         executor_info: dict[str, str | int],
+        task_id: int | None = None,
         av_name: str | None = None,
         simulator_name: str | None = None,
         map_name: str | None = None,
@@ -101,6 +104,7 @@ class ManagerClient:
         logger.debug(f"Registered executor with ID: {executor['id']}")
         return self._claim_task_by_id(
             executor_id=int(executor["id"]),
+            task_id=task_id,
             map_id=self._get_id_by_name("map", map_name),
             scenario_id=scenario_id,
             av_id=self._get_id_by_name("av", av_name),
@@ -108,36 +112,39 @@ class ManagerClient:
             sampler_id=self._get_id_by_name("sampler", sampler_name),
         )
 
-    def task_failed(self, task_id: int, reason: str):
+    def task_failed(self, task_id: int, reason: str, log: str | None = None):
         logger.info(f"Reporting task failure for task ID {task_id}")
         r = requests.post(
             f"{self.manager_url}/task/failed",
             json={
                 "task_id": task_id,
                 "reason": reason,
+                "log": log,
             },
             timeout=self.timeout,
         )
         r.raise_for_status()
 
-    def task_invalid(self, task_id: int, reason: str):
+    def task_invalid(self, task_id: int, reason: str, log: str | None = None):
         logger.info(f"Reporting task invalid for task ID {task_id}")
         r = requests.post(
             f"{self.manager_url}/task/invalid",
             json={
                 "task_id": task_id,
                 "reason": reason,
+                "log": log,
             },
             timeout=self.timeout,
         )
         r.raise_for_status()
 
-    def task_succeeded(self, task_id: int):
+    def task_succeeded(self, task_id: int, log: str | None = None):
         logger.info(f"Reporting task success for task ID {task_id}")
         r = requests.post(
             f"{self.manager_url}/task/succeeded",
             json={
                 "task_id": task_id,
+                "log": log,
             },
             timeout=self.timeout,
         )

@@ -80,7 +80,7 @@ dependencies = [
     { name = "dotenv" },
     { name = "loguru" },
     { name = "requests" },
-    { name = "runner" },
+    { name = "simcore" },
 ]
 
 [package.metadata]
@@ -88,7 +88,7 @@ requires-dist = [
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "requests", specifier = ">=2.32.5" },
-    { name = "runner", git = "https://github.com/PISA-Hut/runner.git" },
+    { name = "simcore", git = "https://github.com/pisa-hut/simulation-core.git" },
 ]
 
 [[package]]
@@ -209,9 +209,9 @@ wheels = [
 ]
 
 [[package]]
-name = "runner"
-version = "0.1.6"
-source = { git = "https://github.com/PISA-Hut/runner.git#04caee4f45d8925b2100388ee7584198aec0bfe8" }
+name = "simcore"
+version = "0.2.0"
+source = { git = "https://github.com/pisa-hut/simulation-core.git#85356df65991423de3cf98320603b1f1e6a20ae0" }
 dependencies = [
     { name = "pisa-api" },
     { name = "pyyaml" },

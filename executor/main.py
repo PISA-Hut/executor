@@ -6,7 +6,7 @@ import os
 import sys
 from typing import Any
 
-from runner.runner import Runner
+from simcore.engine import SimulationEngine
 
 from executor.apptainer_utils.apptainer_manager import ApptainerServiceManager
 from executor.docker_utils.docker_manager import DockerServiceManager
@@ -38,8 +38,8 @@ def _execute_runner_task(
     runner_spec: dict[str, Any],
 ) -> None:
     try:
-        runner = Runner(runner_spec)
-        runner.exec()
+        engine = SimulationEngine(runner_spec)
+        engine.exec()
     except KeyboardInterrupt:
         logger.warning("Task execution interrupted by user.")
         client.task_failed(task_id, reason="Task interrupted by user")
@@ -109,6 +109,12 @@ def parse_args(
         help="Name of the map to filter tasks by (optional)",
     )
     parser.add_argument(
+        "--task-id",
+        type=int,
+        default=None,
+        help="Claim a specific task by ID",
+    )
+    parser.add_argument(
         "--scenario-id",
         type=int,
         default=None,
@@ -166,6 +172,7 @@ def main():
 
     claimed_spec = client.claim_task_spec(
         executor_info,
+        task_id=args.task_id,
         av_name=args.av,
         simulator_name=args.simulator,
         map_name=args.map,
