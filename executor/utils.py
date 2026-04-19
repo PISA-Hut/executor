@@ -29,10 +29,10 @@ def resolve_host_path(host_path: str | None) -> str:
         logger.warning("Received None as host path to resolve. Returning empty string.")
         return ""
 
-    SBSVF_DIR = os.getenv("SBSVF_DIR", "/opt/sbsvf")
+    PISA_DATA_DIR = os.getenv("PISA_DATA_DIR", "/opt/pisa")
 
     if not os.path.isabs(host_path):
-        host_path = os.path.join(SBSVF_DIR, host_path)
+        host_path = os.path.join(PISA_DATA_DIR, host_path)
     expanded_path = os.path.expandvars(os.path.expanduser(host_path))
     absolute_path = os.path.abspath(expanded_path)
     return absolute_path
@@ -121,7 +121,7 @@ def build_runner_spec(
             "rmlib_path": resolve_host_path(
                 os.getenv(
                     "RMLIB_PATH",
-                    f"{os.getenv('SBSVF_DIR', '/opt/sbsvf')}/lib/libesminiRMLib.so",
+                    f"{os.getenv('PISA_DATA_DIR', '/opt/pisa')}/lib/libesminiRMLib.so",
                 )
             ),
         },

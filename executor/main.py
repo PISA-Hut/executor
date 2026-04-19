@@ -187,7 +187,8 @@ def main():
     claimed_simulator = dict(claimed_spec.get("simulator", {}))
     claimed_map = dict(claimed_spec.get("map", {}))
     claimed_scenario = dict(claimed_spec.get("scenario", {}))
-    logger.info(f"Claimed scenario: {claimed_scenario.get('title', 'unknown')}")
+    scenario_title = claimed_scenario.get("title", "unknown_scenario")
+    logger.info(f"Claimed scenario: {scenario_title}")
 
     services_spec = build_services_spec(
         claimed_av=claimed_av,
@@ -199,7 +200,6 @@ def main():
     av = claimed_av.get("name", "unknown_av")
     sim = claimed_simulator.get("name", "unknown_simulator")
     map_name = claimed_map.get("name", "unknown_map")
-    scenario_title = claimed_scenario.get("title", "unknown_scenario")
     cla = f"{av}_{sim}"
 
     output_dir = str(
