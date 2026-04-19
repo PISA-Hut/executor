@@ -126,4 +126,10 @@ def build_runner_spec(
             ),
         },
         "sampler": copy.deepcopy(claimed_spec.get("sampler", {})),
+        "monitor": {
+            "module_path": "simcore.monitor.base:Monitor",
+            "config_path": resolve_host_path(
+                os.getenv("MONITOR_CONFIG_PATH", "config/monitor/default.yaml")
+            ),
+        },
     }
