@@ -164,7 +164,7 @@ def main():
     )
 
     logger.debug("Starting executor...")
-    logger.debug(f"Arguments: {args}")
+    logger.info(f"Arguments: {args}")
 
     executor_info = collect_executor_identity()
 
