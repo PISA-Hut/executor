@@ -58,10 +58,12 @@ class ApptainerServiceManager(ServiceManager):
             return None
 
     def _stop_backend_service(self, service_name: str) -> None:
-        command = ApptainerServiceConfig.get_stop_command(service_name)
         logger.info(f"Stopping Apptainer instance: {service_name}")
         try:
-            proc = self._run_command(command)
+            proc = self._run_command(
+                ["apptainer", "instance", "stop", "-F", service_name],
+                timeout=30,
+            )
             if proc.returncode != 0:
                 logger.error(f"Failed to stop Apptainer instance: {proc.stderr}")
         except Exception as exc:
