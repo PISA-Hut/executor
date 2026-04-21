@@ -12,6 +12,7 @@ from simcore.engine import SimulationEngine
 from executor.apptainer_utils.apptainer_manager import ApptainerServiceManager
 from executor.docker_utils.docker_manager import DockerServiceManager
 from executor.manager_client import ManagerClient
+from executor.log_capture import LogCapture, install as install_log_capture
 from executor.service_manager import ServiceManager
 from executor.staging import stage_task_inputs
 from executor.system import collect_executor_identity
@@ -38,13 +39,17 @@ def _execute_runner_task(
     client: ManagerClient,
     task_id: Any,
     runner_spec: dict[str, Any],
+    capture: "LogCapture | None" = None,
 ) -> None:
+    def _log() -> "str | None":
+        return capture.snapshot() if capture is not None else None
+
     try:
         engine = SimulationEngine(runner_spec)
         engine.exec()
     except KeyboardInterrupt:
         logger.warning("Task execution interrupted by user.")
-        client.task_failed(task_id, reason="Task interrupted by user")
+        client.task_failed(task_id, reason="Task interrupted by user", log=_log())
     except Exception as exc:
         if isinstance(exc, RuntimeError):
             if (
@@ -56,7 +61,7 @@ def _execute_runner_task(
                 logger.error(
                     f"Task execution failed due to route not found error: {exc}"
                 )
-                client.task_invalid(task_id, reason=str(exc))
+                client.task_invalid(task_id, reason=str(exc), log=_log())
                 return
             elif (
                 "Exception calling application: failed validating <Element".lower()
@@ -65,19 +70,19 @@ def _execute_runner_task(
                 logger.error(
                     f"Task execution failed due to scenario validation error: {exc}"
                 )
-                client.task_invalid(task_id, reason=str(exc))
+                client.task_invalid(task_id, reason=str(exc), log=_log())
                 return
             else:
                 logger.error(f"Task execution failed with runtime error: {exc}")
-                client.task_failed(task_id, reason=str(exc))
+                client.task_failed(task_id, reason=str(exc), log=_log())
                 return
         else:
             err_msg = f"{type(exc).__name__}: {str(exc)}"
             logger.error(f"Task execution failed with error: {err_msg}")
-            client.task_failed(task_id, reason=err_msg)
+            client.task_failed(task_id, reason=err_msg, log=_log())
     else:
         logger.info(f"Task execution succeeded for task ID: {task_id}")
-        client.task_succeeded(task_id)
+        client.task_succeeded(task_id, log=_log())
 
 
 def parse_args(
@@ -164,6 +169,11 @@ def main():
         colorize=True,
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
     )
+
+    # Capture everything the executor + simcore prints so we can PUT it back
+    # to the task_run row and render it in the web UI.
+    capture = LogCapture()
+    install_log_capture(capture)
 
     logger.debug("Starting executor...")
     logger.info(f"Arguments: {args}")
@@ -254,12 +264,17 @@ def main():
             f"Runner spec available at: {os.path.join(output_dir, 'runner_spec.json')}"
         )
 
-        _execute_runner_task(client=client, task_id=task_id, runner_spec=runner_spec)
+        _execute_runner_task(
+            client=client,
+            task_id=task_id,
+            runner_spec=runner_spec,
+            capture=capture,
+        )
     except Exception as exc:
         logger.error(f"Executor failed with error: {exc}")
         if task_id is not None:
             err_msg = f"{type(exc).__name__}: {str(exc)}"
-            client.task_failed(task_id, reason=err_msg)
+            client.task_failed(task_id, reason=err_msg, log=capture.snapshot())
 
     finally:
         service_manager.stop_all_services()
