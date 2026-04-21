@@ -23,6 +23,21 @@ class StagedPaths:
     av_config: Path
     simulator_config: Path
     sampler_config: Optional[Path]
+    monitor_config: Path
+
+
+# Default simcore monitor config bundled with the executor so we don't need
+# another `PISA_DATA_DIR/config/monitor/*.yaml` on disk. Single timeout
+# root keeps Monitor happy (it rejects empty-children composites).
+DEFAULT_MONITOR_YAML = """\
+condition:
+  type: or
+  name: default
+  children:
+    - type: timeout
+      name: scenario-timeout
+      timeout_ms: 60000
+"""
 
 
 def _fetch_into(session: requests.Session, url: str, dest: Path, timeout: int) -> None:
@@ -127,6 +142,9 @@ def stage_task_inputs(
         else:
             raise
 
+    monitor_config = config_dir / "monitor.yaml"
+    monitor_config.write_text(DEFAULT_MONITOR_YAML, encoding="utf-8")
+
     return StagedPaths(
         xodr_dir=xodr_dir.resolve(),
         osm_dir=osm_dir.resolve(),
@@ -134,4 +152,5 @@ def stage_task_inputs(
         av_config=av_config.resolve(),
         simulator_config=sim_config.resolve(),
         sampler_config=sampler_config.resolve() if sampler_config else None,
+        monitor_config=monitor_config.resolve(),
     )

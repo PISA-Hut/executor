@@ -23,10 +23,10 @@ def sanitize_path(name: str) -> str:
 def resolve_host_path(host_path: str | None) -> str:
     """Resolve `$PISA_DATA_DIR`-relative paths to absolute host paths.
 
-    Kept only for `RMLIB_PATH` and `MONITOR_CONFIG_PATH` — infrastructure
-    files we still sync to disk (like SIF images). All dynamic task inputs
-    (map, scenario, configs) come from the manager and land in a staging
-    dir; they do NOT go through this helper.
+    Kept only for `RMLIB_PATH` — the libesminiRMLib.so binary that the
+    executor dlopens and SIF images that the container runtime consumes.
+    Every other task input (maps, scenarios, configs) comes from the
+    manager and lands in a staging dir; none of those go through here.
     """
     if host_path is None:
         logger.warning("Received None as host path to resolve. Returning empty string.")
@@ -131,9 +131,7 @@ def build_runner_spec(
         "sampler": _build_sampler_spec(claimed_spec, staged),
         "monitor": {
             "module_path": "simcore.monitor.base:Monitor",
-            "config_path": resolve_host_path(
-                os.getenv("MONITOR_CONFIG_PATH", "config/monitor/default.yaml")
-            ),
+            "config_path": str(staged.monitor_config),
         },
     }
 
