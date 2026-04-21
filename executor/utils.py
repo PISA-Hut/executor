@@ -4,6 +4,8 @@ import os
 import re
 from typing import Any
 
+from executor.staging import StagedPaths
+
 
 def sanitize_path(name: str) -> str:
     """Sanitize a string for safe use as a single directory name component."""
@@ -16,15 +18,13 @@ def sanitize_path(name: str) -> str:
 
 
 def resolve_host_path(host_path: str | None) -> str:
-    """
-    Resolve a host path, expanding user and environment variables, and converting to an absolute path.
+    """Resolve `$PISA_DATA_DIR`-relative paths to absolute host paths.
 
-    Args:
-        host_path (str): The input host path to resolve.
-    Returns:
-        str: The resolved absolute host path.
+    Kept only for `RMLIB_PATH` and `MONITOR_CONFIG_PATH` — infrastructure
+    files we still sync to disk (like SIF images). All dynamic task inputs
+    (map, scenario, configs) come from the manager and land in a staging
+    dir; they do NOT go through this helper.
     """
-
     if host_path is None:
         logger.warning("Received None as host path to resolve. Returning empty string.")
         return ""
@@ -43,9 +43,8 @@ def build_services_spec(
     claimed_simulator: dict[str, Any],
     claimed_map: dict[str, Any],
     claimed_scenario: dict[str, Any],
+    staged: StagedPaths,
 ) -> dict[str, dict[str, Any]]:
-    worker_scenario_path = claimed_scenario.get("scenario_path")
-
     return {
         "simulator": {
             "name": claimed_simulator.get("name"),
@@ -62,11 +61,11 @@ def build_services_spec(
             "carla_runtime": claimed_av.get("carla_runtime", False),
         },
         "map": {
-            "osm_path": claimed_map.get("osm_path"),
-            "xodr_path": claimed_map.get("xodr_path"),
+            "xodr_path": str(staged.xodr_dir),
+            "osm_path": str(staged.osm_dir),
         },
         "scenario": {
-            "scenario_path": worker_scenario_path,
+            "scenario_path": str(staged.scenario_dir),
         },
     }
 
@@ -78,6 +77,7 @@ def build_runner_spec(
     claimed_map: dict[str, Any],
     claimed_scenario: dict[str, Any],
     started_specs: dict[str, dict[str, Any]],
+    staged: StagedPaths,
     job_id: Any,
     output_dir: str,
 ) -> dict[str, Any]:
@@ -93,7 +93,7 @@ def build_runner_spec(
             "output_dir": output_dir,
         },
         "simulator": {
-            "config_path": resolve_host_path(claimed_simulator.get("config_path")),
+            "config_path": str(staged.simulator_config),
             "map": simulator_started_spec.get("map", {}),
             "scenario": {
                 "format": claimed_scenario.get("format"),
@@ -104,20 +104,20 @@ def build_runner_spec(
             "url": simulator_started_spec.get("service_info", {}).get("url", {}),
         },
         "av": {
-            "config_path": resolve_host_path(claimed_av.get("config_path")),
+            "config_path": str(staged.av_config),
             "map": av_started_spec.get("map", {}),
             "output_path": av_started_spec.get("output_path", {}),
             "url": av_started_spec.get("service_info", {}).get("url", {}),
         },
         "map": {
             "name": claimed_map.get("name"),
-            "osm_path": resolve_host_path(claimed_map.get("osm_path")),
-            "xodr_path": resolve_host_path(claimed_map.get("xodr_path")),
+            "osm_path": str(staged.osm_dir),
+            "xodr_path": str(staged.xodr_dir),
         },
         "scenario": {
             "goal_config": claimed_scenario.get("goal_config"),
             "title": claimed_scenario.get("title"),
-            "scenario_path": resolve_host_path(claimed_scenario.get("scenario_path")),
+            "scenario_path": str(staged.scenario_dir),
             "rmlib_path": resolve_host_path(
                 os.getenv(
                     "RMLIB_PATH",
@@ -125,7 +125,7 @@ def build_runner_spec(
                 )
             ),
         },
-        "sampler": copy.deepcopy(claimed_spec.get("sampler", {})),
+        "sampler": _build_sampler_spec(claimed_spec, staged),
         "monitor": {
             "module_path": "simcore.monitor.base:Monitor",
             "config_path": resolve_host_path(
@@ -133,3 +133,15 @@ def build_runner_spec(
             ),
         },
     }
+
+
+def _build_sampler_spec(
+    claimed_spec: dict[str, dict[str, Any]],
+    staged: StagedPaths,
+) -> dict[str, Any]:
+    sampler = copy.deepcopy(claimed_spec.get("sampler", {}))
+    if staged.sampler_config is not None:
+        sampler["config_path"] = str(staged.sampler_config)
+    else:
+        sampler.pop("config_path", None)
+    return sampler

@@ -4,6 +4,7 @@ import json
 from loguru import logger
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 from simcore.engine import SimulationEngine
@@ -12,6 +13,7 @@ from executor.apptainer_utils.apptainer_manager import ApptainerServiceManager
 from executor.docker_utils.docker_manager import DockerServiceManager
 from executor.manager_client import ManagerClient
 from executor.service_manager import ServiceManager
+from executor.staging import stage_task_inputs
 from executor.system import collect_executor_identity
 from executor.utils import (
     build_runner_spec,
@@ -197,13 +199,6 @@ def main():
     scenario_title = claimed_scenario.get("title", "unknown_scenario")
     logger.info(f"Claimed scenario: {scenario_title}")
 
-    services_spec = build_services_spec(
-        claimed_av=claimed_av,
-        claimed_simulator=claimed_simulator,
-        claimed_map=claimed_map,
-        claimed_scenario=claimed_scenario,
-    )
-
     av = claimed_av.get("name", "unknown_av")
     sim = claimed_simulator.get("name", "unknown_simulator")
     map_name = claimed_map.get("name", "unknown_map")
@@ -215,6 +210,25 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     with open(os.path.join(output_dir, "claimed_spec.json"), "w") as f:
         json.dump(claimed_spec, f, indent=4)
+
+    staged = stage_task_inputs(
+        manager_url=client.manager_url,
+        stage_root=Path(output_dir) / ".staged",
+        map_id=int(claimed_map["id"]),
+        scenario_id=int(claimed_scenario["id"]),
+        av_id=int(claimed_av["id"]),
+        simulator_id=int(claimed_simulator["id"]),
+        sampler_id=int(claimed_spec.get("sampler", {}).get("id", 0)),
+    )
+    logger.debug(f"Staged inputs under {Path(output_dir) / '.staged'}")
+
+    services_spec = build_services_spec(
+        claimed_av=claimed_av,
+        claimed_simulator=claimed_simulator,
+        claimed_map=claimed_map,
+        claimed_scenario=claimed_scenario,
+        staged=staged,
+    )
 
     service_manager = _create_service_manager(args.backend, job_id)
     try:
@@ -230,6 +244,7 @@ def main():
             claimed_map=claimed_map,
             claimed_scenario=claimed_scenario,
             started_specs=started_specs,
+            staged=staged,
             job_id=job_id,
             output_dir=output_dir,
         )
