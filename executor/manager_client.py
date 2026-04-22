@@ -138,6 +138,19 @@ class ManagerClient:
         )
         r.raise_for_status()
 
+    def task_aborted(self, task_id: int, reason: str, log: str | None = None):
+        logger.info(f"Reporting task aborted for task ID {task_id}")
+        r = requests.post(
+            f"{self.manager_url}/task/aborted",
+            json={
+                "task_id": task_id,
+                "reason": reason,
+                "log": log,
+            },
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+
     def task_succeeded(self, task_id: int, log: str | None = None):
         logger.info(f"Reporting task success for task ID {task_id}")
         r = requests.post(

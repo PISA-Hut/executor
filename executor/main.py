@@ -2,6 +2,7 @@ import argparse
 import dotenv
 import json
 import signal
+import time
 from loguru import logger
 import os
 import sys
@@ -39,8 +40,29 @@ def _install_shutdown_handler(state: dict[str, Any]) -> None:
     piece of cleanup."""
 
     def handler(signum: int, _frame) -> None:
+        # Classify the signal: SIGINT is always user-initiated. SIGTERM is
+        # ambiguous — SLURM uses it for both `scancel` and time-limit
+        # pre-kill. Compare against `SLURM_JOB_END_TIME` (epoch seconds);
+        # if we're still far from the end, it's scancel.
+        is_abort = signum == signal.SIGINT
+        if signum == signal.SIGTERM:
+            end_raw = os.environ.get("SLURM_JOB_END_TIME")
+            if end_raw:
+                try:
+                    remaining = int(end_raw) - int(time.time())
+                    # Our sbatch script requests TERM 60 s before the end;
+                    # anything comfortably more than that is scancel.
+                    is_abort = remaining > 90
+                except ValueError:
+                    pass
+            else:
+                # No SLURM env (running under plain docker / local shell):
+                # SIGTERM is almost always someone typing `kill` by hand.
+                is_abort = True
+
         logger.warning(
-            f"Received signal {signum}; reporting task failure and exiting"
+            f"Received signal {signum}; reporting task "
+            f"{'aborted' if is_abort else 'failed'} and exiting"
         )
         streamer = state.get("log_streamer")
         if streamer is not None:
@@ -53,17 +75,24 @@ def _install_shutdown_handler(state: dict[str, Any]) -> None:
         capture: LogCapture | None = state.get("capture")
         if task_id is not None and client is not None:
             try:
-                reason = (
-                    f"Executor received signal {signum}"
-                    " (likely SLURM time limit or manual cancel)"
-                )
-                client.task_failed(
-                    task_id,
-                    reason=reason,
-                    log=capture.snapshot() if capture is not None else None,
-                )
+                snap = capture.snapshot() if capture is not None else None
+                if is_abort:
+                    client.task_aborted(
+                        task_id,
+                        reason=f"Executor received signal {signum} (cancelled)",
+                        log=snap,
+                    )
+                else:
+                    client.task_failed(
+                        task_id,
+                        reason=(
+                            f"Executor received signal {signum}"
+                            " (SLURM time limit)"
+                        ),
+                        log=snap,
+                    )
             except Exception as exc:
-                logger.error(f"task_failed call during signal handling: {exc}")
+                logger.error(f"lifecycle call during signal handling: {exc}")
         svc_mgr: ServiceManager | None = state.get("service_manager")
         if svc_mgr is not None:
             try:
