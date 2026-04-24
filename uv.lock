@@ -213,7 +213,7 @@ wheels = [
 [[package]]
 name = "simcore"
 version = "0.2.0"
-source = { git = "https://github.com/pisa-hut/simulation-core.git#2caac3d3f87299077412b298f0bf44a0bb689bf0" }
+source = { git = "https://github.com/pisa-hut/simulation-core.git#1a1a5048bb01b3e3c7896c9c6c11912dfe5acbdf" }
 dependencies = [
     { name = "pisa-api" },
     { name = "pyyaml" },

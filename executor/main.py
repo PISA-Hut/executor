@@ -73,6 +73,12 @@ def _install_shutdown_handler(state: dict[str, Any]) -> None:
         task_id = state.get("task_id")
         client: ManagerClient | None = state.get("client")
         capture: LogCapture | None = state.get("capture")
+        engine_obj = state.get("engine")
+        useful = (
+            int(getattr(engine_obj, "completed_concrete_runs", 0))
+            if engine_obj is not None
+            else 0
+        )
         if task_id is not None and client is not None:
             try:
                 snap = capture.snapshot() if capture is not None else None
@@ -81,6 +87,7 @@ def _install_shutdown_handler(state: dict[str, Any]) -> None:
                         task_id,
                         reason=f"Executor received signal {signum} (cancelled)",
                         log=snap,
+                        concrete_scenarios_executed=useful,
                     )
                 else:
                     client.task_failed(
@@ -90,6 +97,7 @@ def _install_shutdown_handler(state: dict[str, Any]) -> None:
                             " (SLURM time limit)"
                         ),
                         log=snap,
+                        concrete_scenarios_executed=useful,
                     )
             except Exception as exc:
                 logger.error(f"lifecycle call during signal handling: {exc}")
@@ -122,17 +130,33 @@ def _execute_runner_task(
     task_id: Any,
     runner_spec: dict[str, Any],
     capture: "LogCapture | None" = None,
+    shutdown_state: dict[str, Any] | None = None,
 ) -> None:
     def _log() -> "str | None":
         return capture.snapshot() if capture is not None else None
 
+    engine: SimulationEngine | None = None
+
+    def _useful() -> int:
+        return engine.completed_concrete_runs if engine is not None else 0
+
     try:
         engine = SimulationEngine(runner_spec)
+        # Expose the engine to the SIGTERM handler so signal-triggered
+        # aborts report an accurate concrete-run count too.
+        if shutdown_state is not None:
+            shutdown_state["engine"] = engine
         engine.exec()
     except KeyboardInterrupt:
         logger.warning("Task execution interrupted by user.")
-        client.task_failed(task_id, reason="Task interrupted by user", log=_log())
+        client.task_failed(
+            task_id,
+            reason="Task interrupted by user",
+            log=_log(),
+            concrete_scenarios_executed=_useful(),
+        )
     except Exception as exc:
+        useful = _useful()
         if isinstance(exc, RuntimeError):
             if (
                 "Failed to set Autoware route points.".lower() in str(exc).lower()
@@ -143,7 +167,10 @@ def _execute_runner_task(
                 logger.error(
                     f"Task execution failed due to route not found error: {exc}"
                 )
-                client.task_invalid(task_id, reason=str(exc), log=_log())
+                client.task_invalid(
+                    task_id, reason=str(exc), log=_log(),
+                    concrete_scenarios_executed=useful,
+                )
                 return
             elif (
                 "Exception calling application: failed validating <Element".lower()
@@ -152,19 +179,30 @@ def _execute_runner_task(
                 logger.error(
                     f"Task execution failed due to scenario validation error: {exc}"
                 )
-                client.task_invalid(task_id, reason=str(exc), log=_log())
+                client.task_invalid(
+                    task_id, reason=str(exc), log=_log(),
+                    concrete_scenarios_executed=useful,
+                )
                 return
             else:
                 logger.error(f"Task execution failed with runtime error: {exc}")
-                client.task_failed(task_id, reason=str(exc), log=_log())
+                client.task_failed(
+                    task_id, reason=str(exc), log=_log(),
+                    concrete_scenarios_executed=useful,
+                )
                 return
         else:
             err_msg = f"{type(exc).__name__}: {str(exc)}"
             logger.error(f"Task execution failed with error: {err_msg}")
-            client.task_failed(task_id, reason=err_msg, log=_log())
+            client.task_failed(
+                task_id, reason=err_msg, log=_log(),
+                concrete_scenarios_executed=useful,
+            )
     else:
         logger.info(f"Task execution succeeded for task ID: {task_id}")
-        client.task_succeeded(task_id, log=_log())
+        client.task_succeeded(
+            task_id, log=_log(), concrete_scenarios_executed=_useful()
+        )
 
 
 def parse_args(
@@ -369,12 +407,22 @@ def main():
             task_id=task_id,
             runner_spec=runner_spec,
             capture=capture,
+            shutdown_state=shutdown_state,
         )
     except Exception as exc:
         logger.error(f"Executor failed with error: {exc}")
         if task_id is not None:
             err_msg = f"{type(exc).__name__}: {str(exc)}"
-            client.task_failed(task_id, reason=err_msg, log=capture.snapshot())
+            engine_obj = shutdown_state.get("engine")
+            useful = (
+                int(getattr(engine_obj, "completed_concrete_runs", 0))
+                if engine_obj is not None
+                else 0
+            )
+            client.task_failed(
+                task_id, reason=err_msg, log=capture.snapshot(),
+                concrete_scenarios_executed=useful,
+            )
 
     finally:
         if log_streamer is not None:
