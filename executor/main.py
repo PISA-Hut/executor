@@ -132,6 +132,23 @@ def _execute_runner_task(
     capture: "LogCapture | None" = None,
     shutdown_state: dict[str, Any] | None = None,
 ) -> None:
+    """Drive one task's SimulationEngine and report the terminal state.
+
+    task_run_status is decided by one question only: did engine.exec()
+    return cleanly?
+        exec() returns    -> task_succeeded -> task_run.completed
+        exec() raises     -> task_failed    -> task_run.failed
+        SIGTERM/SIGINT    -> task_aborted   -> task_run.aborted  (handled in
+                                               the signal handler, not here)
+
+    `concrete_scenarios_executed` is ORTHOGONAL: it reports how much
+    useful work this attempt produced and the manager uses it to decide
+    whether to retry or permanently invalidate the task (after
+    USELESS_STREAK_LIMIT consecutive runs with count 0). A run can
+    legitimately end as `failed` with a non-zero count when, for
+    example, the sampler finished 5 concretes before the 6th crashed.
+    """
+
     def _log() -> "str | None":
         return capture.snapshot() if capture is not None else None
 
