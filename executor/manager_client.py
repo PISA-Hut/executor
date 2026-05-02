@@ -30,7 +30,6 @@ class ManagerClient:
     def _register_executor(self, info: dict[str, str | int]) -> dict[str, str | int]:
         payload = {
             "job_id": int(info.get("job_id", 0)),
-            "array_id": int(info.get("array_id", 0)),
             "node_list": str(info.get("node_list", "unknown")),
             "hostname": str(info.get("hostname", "unknown")),
         }
