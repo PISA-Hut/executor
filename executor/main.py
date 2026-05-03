@@ -1,6 +1,7 @@
 import argparse
 import dotenv
 import json
+import shutil
 import signal
 import time
 from loguru import logger
@@ -350,16 +351,17 @@ def main():
     with open(os.path.join(output_dir, "claimed_spec.json"), "w") as f:
         json.dump(claimed_spec, f, indent=4)
 
+    staged_root = Path(output_dir) / ".staged"
     staged = stage_task_inputs(
         manager_url=client.manager_url,
-        stage_root=Path(output_dir) / ".staged",
+        stage_root=staged_root,
         map_id=int(claimed_map["id"]),
         scenario_id=int(claimed_scenario["id"]),
         av_id=int(claimed_av["id"]),
         simulator_id=int(claimed_simulator["id"]),
         sampler_id=int(claimed_spec.get("sampler", {}).get("id", 0)),
     )
-    logger.debug(f"Staged inputs under {Path(output_dir) / '.staged'}")
+    logger.debug(f"Staged inputs under {staged_root}")
 
     services_spec = build_services_spec(
         claimed_av=claimed_av,
@@ -420,6 +422,18 @@ def main():
         if log_streamer is not None:
             log_streamer.stop()
         service_manager.stop_all_services()
+        # Reclaim disk: the staged map / scenario / config bytes can be
+        # tens of MB per task and the host accumulates one .staged tree
+        # per (av, sim, task, map, scenario) combo. The manager keeps
+        # the canonical copy, so a re-run just re-stages from scratch.
+        # Errors here are non-fatal — log + carry on so a stuck
+        # filesystem can't prevent the executor from exiting cleanly.
+        if staged_root.exists():
+            try:
+                shutil.rmtree(staged_root)
+                logger.debug(f"Cleaned staged inputs at {staged_root}")
+            except Exception as e:
+                logger.warning(f"Failed to clean staged inputs at {staged_root}: {e}")
 
     logger.debug("Executor finished execution.")
 
