@@ -138,8 +138,8 @@ wheels = [
 
 [[package]]
 name = "pisa-api"
-version = "0.1.20"
-source = { git = "https://github.com/PISA-Hut/pisa-api.git#bb14503f4667cb53023470960a6608b055947fdd" }
+version = "0.2.0"
+source = { git = "https://github.com/PISA-Hut/pisa-api.git#959da70b74a55ccd0b17ef248916f8728e28c7e2" }
 dependencies = [
     { name = "grpcio" },
     { name = "protobuf" },
@@ -213,7 +213,7 @@ wheels = [
 [[package]]
 name = "simcore"
 version = "0.2.0"
-source = { git = "https://github.com/pisa-hut/simulation-core.git#1a1a5048bb01b3e3c7896c9c6c11912dfe5acbdf" }
+source = { git = "https://github.com/pisa-hut/simulation-core.git#0b6577f6cc5ea37571edd622d2f8b1b726510e5e" }
 dependencies = [
     { name = "pisa-api" },
     { name = "pyyaml" },
