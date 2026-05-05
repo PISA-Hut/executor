@@ -102,10 +102,13 @@ def install(capture: LogCapture) -> None:
     their INFO output doesn't dominate the captured stream — their INFO
     isn't useful for task debugging and would consume most of the buffer."""
 
+    # Loguru appends its own newline after `format`, so the format
+    # string itself must NOT end in `\n` — otherwise every captured
+    # record is followed by a blank line in the manager UI.
     loguru_logger.add(
         capture.write,
         level="INFO",
-        format="{time:HH:mm:ss} | {level: <8} | {name}:{line} - {message}\n",
+        format="{time:HH:mm:ss} | {level: <8} | {name}:{line} - {message}",
     )
 
     root = logging.getLogger()
