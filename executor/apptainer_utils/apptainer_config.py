@@ -71,10 +71,13 @@ class ApptainerServiceConfig:
             logger.error("Invalid component spec types for Apptainer service config")
             return None
 
-    def get_start_command(
-        self, instance_name: str, env_vars: dict[str, Any]
-    ) -> list[str]:
-        cmd = ["apptainer", "instance", "start", "--writable-tmpfs"]
+    def get_run_command(self, env_vars: dict[str, Any]) -> list[str]:
+        # Foreground `apptainer run` so the container is a child of
+        # this executor process — and the executor is itself a child
+        # of the SLURM step. Daemonised `instance start` would escape
+        # SLURM's hierarchy: SLURM couldn't account CPU/mem against
+        # the job, kill it on time-limit, or reap it on `scancel`.
+        cmd = ["apptainer", "run", "--writable-tmpfs"]
 
         for env_var, value in env_vars.items():
             cmd.extend(["--env", f"{env_var}={value}"])
@@ -85,9 +88,5 @@ class ApptainerServiceConfig:
         if self.nv_runtime:
             cmd.append("--nv")
 
-        cmd.extend([self.sif_path, instance_name])
+        cmd.append(self.sif_path)
         return cmd
-
-    @staticmethod
-    def get_stop_command(instance_name: str) -> list[str]:
-        return ["apptainer", "instance", "stop", instance_name]
