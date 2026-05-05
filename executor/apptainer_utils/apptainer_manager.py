@@ -1,3 +1,5 @@
+import os
+import signal
 import subprocess
 import threading
 from typing import Any, Optional
@@ -12,11 +14,11 @@ class ApptainerServiceManager(ServiceManager):
     """Start/stop Apptainer services for simulator and AV.
 
     Uses foreground `apptainer run` so the container is a child of
-    this executor process. SLURM owns the executor's process tree,
-    so it can account resources against the job and propagate
-    SIGTERM on time-limit / scancel without leaving orphan
-    containers — unlike `apptainer instance start`, which daemonises
-    and escapes that hierarchy.
+    this executor process. SLURM owns the executor's process tree
+    (via the job step's cgroup), so it can account resources
+    against the job and propagate SIGTERM on time-limit / scancel
+    without leaving orphan containers — unlike `apptainer instance
+    start`, which daemonises and escapes that hierarchy.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -50,16 +52,31 @@ class ApptainerServiceManager(ServiceManager):
         try:
             command = config.get_run_command(start_envs)
             logger.debug(f"Spawning: {' '.join(command)}")
-            # start_new_session=False (default) keeps the child in
-            # the executor's process group so SIGTERM from SLURM
-            # cascades. Merge stderr→stdout so a single reader
-            # thread can prefix every line with the service name.
+            # start_new_session=True puts the apptainer process and
+            # everything it forks (the container's runtime + the
+            # gRPC server inside) into a fresh session/process
+            # group. Cleanup then sends signals to the whole group
+            # via os.killpg so we reap children too — terminating
+            # only the apptainer parent can leak its descendants.
+            #
+            # SLURM still reaches every process via the job step's
+            # cgroup regardless of session membership, so this
+            # doesn't break time-limit / scancel propagation.
+            #
+            # encoding+errors keep the reader thread robust against
+            # non-UTF8 bytes that some simulators emit; default
+            # decoder behaviour would crash the thread, leave the
+            # pipe undrained, and eventually stall the container
+            # once the kernel buffer fills.
             proc = subprocess.Popen(
                 command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
+                start_new_session=True,
             )
             self._processes[service_name] = proc
             reader = threading.Thread(
@@ -104,30 +121,56 @@ class ApptainerServiceManager(ServiceManager):
             return None
 
     def _stop_backend_service(self, service_name: str) -> None:
-        proc = self._processes.pop(service_name, None)
-        reader = self._readers.pop(service_name, None)
+        # Look up but DO NOT pop yet — if the process survives
+        # SIGKILL we want the handle to stay around so a follow-up
+        # cleanup attempt (or a process-exit handler) can retry
+        # instead of silently no-op'ing.
+        proc = self._processes.get(service_name)
         if proc is None:
             return
 
         logger.info(f"Stopping Apptainer container: {service_name} (pid {proc.pid})")
         if proc.poll() is None:
-            proc.terminate()
+            self._signal_group(proc, signal.SIGTERM)
             try:
                 proc.wait(timeout=30)
             except subprocess.TimeoutExpired:
                 logger.warning(
                     f"Container {service_name} did not exit on SIGTERM; killing"
                 )
-                proc.kill()
+                self._signal_group(proc, signal.SIGKILL)
                 try:
                     proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     logger.error(
-                        f"Container {service_name} survived SIGKILL; leaking"
+                        f"Container {service_name} survived SIGKILL; leaking — "
+                        f"keeping handle for retry"
                     )
+                    return
 
+        # Confirmed exit — now safe to drop tracking and join the
+        # reader (its pipe will hit EOF as the process is reaped).
+        self._processes.pop(service_name, None)
+        reader = self._readers.pop(service_name, None)
         if reader is not None:
             reader.join(timeout=5)
+
+    @staticmethod
+    def _signal_group(proc: subprocess.Popen[str], sig: int) -> None:
+        # Container's child processes share the apptainer parent's
+        # process group (we set start_new_session=True). Signal the
+        # group so descendants die too — signaling only the parent
+        # PID would leak runtime/agent children.
+        try:
+            pgid = os.getpgid(proc.pid)
+        except ProcessLookupError:
+            # Already gone.
+            return
+        try:
+            os.killpg(pgid, sig)
+        except ProcessLookupError:
+            # Group already gone.
+            return
 
     @staticmethod
     def _stream_output(service_name: str, proc: subprocess.Popen[str]) -> None:
