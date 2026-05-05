@@ -55,7 +55,11 @@ class LogCapture:
 
 class _StdlibToCapture(logging.Handler):
     def __init__(self, capture: LogCapture):
-        super().__init__(level=logging.DEBUG)
+        # INFO+ only: DEBUG records still fire (root stays at DEBUG)
+        # so they reach local stderr for SLURM-node debugging, but
+        # they don't enter the captured buffer that gets streamed
+        # to the manager / shown in the web UI.
+        super().__init__(level=logging.INFO)
         self._capture = capture
         self.setFormatter(
             logging.Formatter(
@@ -85,23 +89,28 @@ _NOISY_LIBS = (
 
 
 def install(capture: LogCapture) -> None:
-    """Tee loguru + stdlib logging into `capture`. Stdlib root logger is
-    left at whatever level the caller configured; we only append a handler.
-    Loguru sink is added at DEBUG so we capture everything.
+    """Tee loguru + stdlib logging into `capture` at INFO+ only.
 
-    Noisy low-level libs are pinned to WARNING so they don't dominate the
-    captured stream — their DEBUG output isn't useful for task debugging
-    and would consume most of the buffer."""
+    DEBUG records still fire (root logger stays at DEBUG so they reach
+    local stderr for SLURM-node debugging) but the captured buffer that
+    gets streamed to the manager and shown in the web UI excludes them.
+    Browser-side viewers wading through hundreds of per-step DEBUG lines
+    was the noise the user complained about; locally those lines are
+    still available via the SLURM stdout/stderr files.
+
+    Noisy low-level libs (urllib3, etc.) are pinned to WARNING so even
+    their INFO output doesn't dominate the captured stream — their INFO
+    isn't useful for task debugging and would consume most of the buffer."""
 
     loguru_logger.add(
         capture.write,
-        level="DEBUG",
+        level="INFO",
         format="{time:HH:mm:ss} | {level: <8} | {name}:{line} - {message}\n",
     )
 
     root = logging.getLogger()
-    # Ensure the root logger lets records through to our handler even if
-    # no one configured a level yet.
+    # Keep root at DEBUG so DEBUG records reach the local stderr sink;
+    # the capture handler filters them out on its own (level=INFO above).
     if root.level > logging.DEBUG or root.level == logging.NOTSET:
         root.setLevel(logging.DEBUG)
     root.addHandler(_StdlibToCapture(capture))
