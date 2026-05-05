@@ -1,4 +1,5 @@
 import subprocess
+import sys
 import threading
 from typing import Any, Optional
 
@@ -143,11 +144,20 @@ class ApptainerServiceManager(ServiceManager):
 
     @staticmethod
     def _stream_output(service_name: str, proc: subprocess.Popen[str]) -> None:
+        # Write container output straight to stderr with just a
+        # `[<service>]` prefix — the container (simcore wrapper)
+        # already prints its own timestamp/level, and routing
+        # through loguru.info would prepend a second one. We sit on
+        # stderr because that's where loguru's default sink lives,
+        # so executor-native lines and forwarded container lines
+        # interleave on the same stream in chronological order.
         stdout = proc.stdout
         if stdout is None:
             return
+        prefix = f"[{service_name}] "
         try:
             for line in stdout:
-                logger.info(f"[{service_name}] {line.rstrip()}")
+                sys.stderr.write(prefix + line if line.endswith("\n") else prefix + line + "\n")
+                sys.stderr.flush()
         except Exception as exc:
             logger.warning(f"Output reader for {service_name} stopped: {exc}")
