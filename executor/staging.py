@@ -80,6 +80,7 @@ def stage_task_inputs(
     av_id: int,
     simulator_id: int,
     sampler_id: int,
+    monitor_id: Optional[int] = None,
     timeout: int = 60,
 ) -> StagedPaths:
     """Download everything the task needs into `stage_root`.
@@ -168,7 +169,30 @@ def stage_task_inputs(
                 raise
 
     monitor_config = config_dir / "monitor.yaml"
-    monitor_config.write_text(DEFAULT_MONITOR_YAML, encoding="utf-8")
+    if monitor_id:
+        # Task pinned a monitor — fetch its bytes from the manager.
+        # Fallback to the bundled default only when the monitor row
+        # exists but has no config bytes (404 on /config), so a
+        # half-configured monitor doesn't silently disable the
+        # timeout safety net.
+        try:
+            _fetch_into(
+                session,
+                f"{manager_url}/monitor/{monitor_id}/config",
+                monitor_config,
+                timeout,
+            )
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status == 404:
+                logger.warning(
+                    f"Monitor {monitor_id} has no config bytes; using bundled default"
+                )
+                monitor_config.write_text(DEFAULT_MONITOR_YAML, encoding="utf-8")
+            else:
+                raise
+    else:
+        monitor_config.write_text(DEFAULT_MONITOR_YAML, encoding="utf-8")
 
     return StagedPaths(
         xodr_dir=xodr_dir.resolve(),

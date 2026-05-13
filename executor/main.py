@@ -352,6 +352,7 @@ def main():
         json.dump(claimed_spec, f, indent=4)
 
     staged_root = Path(output_dir) / ".staged"
+    claimed_monitor = claimed_spec.get("monitor")
     staged = stage_task_inputs(
         manager_url=client.manager_url,
         stage_root=staged_root,
@@ -360,6 +361,7 @@ def main():
         av_id=int(claimed_av["id"]),
         simulator_id=int(claimed_simulator["id"]),
         sampler_id=int(claimed_spec.get("sampler", {}).get("id", 0)),
+        monitor_id=int(claimed_monitor["id"]) if claimed_monitor else None,
     )
     logger.debug(f"Staged inputs under {staged_root}")
 
