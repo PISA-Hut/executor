@@ -1,22 +1,24 @@
 import argparse
-import dotenv
 import json
+import os
 import shutil
 import signal
-import time
-from loguru import logger
-import os
 import sys
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+import dotenv
+from loguru import logger
 
 from simcore.engine import SimulationEngine
 
 from executor.apptainer_utils.apptainer_manager import ApptainerServiceManager
 from executor.docker_utils.docker_manager import DockerServiceManager
-from executor.manager_client import ManagerClient
 from executor.log_capture import LogCapture, install as install_log_capture
 from executor.log_streamer import LogStreamer
+from executor.manager_client import ManagerClient
 from executor.service_manager import ServiceManager
 from executor.staging import stage_task_inputs
 from executor.system import collect_executor_identity
@@ -29,87 +31,91 @@ from executor.utils import (
 dotenv.load_dotenv()
 
 
-def _install_shutdown_handler(state: dict[str, Any]) -> None:
-    """Handle SIGTERM/SIGINT cleanly: report the task as failed, flush the
-    final log chunk, stop the containers, and exit. SLURM delivers
-    SIGTERM ~60 s before the SIGKILL time-limit guillotine (see
-    `--signal=TERM@60` in scripts/run.sh), which is enough headroom for
-    the manager round-trip.
+@dataclass
+class RunContext:
+    """Live state the SIGTERM/SIGINT handler may need to flush at any
+    point in the run. Optional fields stay None until the corresponding
+    resource has been wired up so the handler can skip cleanly."""
 
-    `state` is a live dict populated by main() as the run progresses; we
-    read whatever's in it at signal time. Missing keys just skip their
-    piece of cleanup."""
+    client: ManagerClient
+    capture: LogCapture
+    task_id: int | None = None
+    log_streamer: LogStreamer | None = None
+    service_manager: ServiceManager | None = None
+    engine: SimulationEngine | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+def _useful_count(engine: SimulationEngine | None) -> int:
+    return int(getattr(engine, "completed_concrete_runs", 0)) if engine is not None else 0
+
+
+def _setup_logging(level: str) -> None:
+    logger.remove()
+    logger.add(
+        sink=sys.stdout,
+        level=level.upper(),
+        colorize=True,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    )
+
+
+def _install_shutdown_handler(ctx: RunContext) -> None:
+    """Report task aborted/failed + flush logs + stop containers on
+    SIGTERM/SIGINT. SLURM sends SIGTERM ~60 s before SIGKILL on time
+    limit (see scripts/run.sh `--signal=TERM@60`). `ctx` mutates as
+    the run progresses; the handler reads whatever's set at signal
+    time and skips unset resources."""
 
     def handler(signum: int, _frame) -> None:
-        # Classify the signal: SIGINT is always user-initiated. SIGTERM is
-        # ambiguous — SLURM uses it for both `scancel` and time-limit
-        # pre-kill. Compare against `SLURM_JOB_END_TIME` (epoch seconds);
-        # if we're still far from the end, it's scancel.
+        # SIGINT = user. SIGTERM = scancel OR pre-kill; distinguish by
+        # comparing SLURM_JOB_END_TIME with now.
         is_abort = signum == signal.SIGINT
         if signum == signal.SIGTERM:
             end_raw = os.environ.get("SLURM_JOB_END_TIME")
             if end_raw:
                 try:
                     remaining = int(end_raw) - int(time.time())
-                    # Our sbatch script requests TERM 60 s before the end;
-                    # anything comfortably more than that is scancel.
                     is_abort = remaining > 90
                 except ValueError:
                     pass
             else:
-                # No SLURM env (running under plain docker / local shell):
-                # SIGTERM is almost always someone typing `kill` by hand.
                 is_abort = True
 
         logger.warning(
             f"Received signal {signum}; reporting task "
             f"{'aborted' if is_abort else 'failed'} and exiting"
         )
-        streamer = state.get("log_streamer")
-        if streamer is not None:
+        if ctx.log_streamer is not None:
             try:
-                streamer.stop()
+                ctx.log_streamer.stop()
             except Exception as exc:
                 logger.error(f"log streamer stop failed during signal handling: {exc}")
-        task_id = state.get("task_id")
-        client: ManagerClient | None = state.get("client")
-        capture: LogCapture | None = state.get("capture")
-        engine_obj = state.get("engine")
-        useful = (
-            int(getattr(engine_obj, "completed_concrete_runs", 0))
-            if engine_obj is not None
-            else 0
-        )
-        if task_id is not None and client is not None:
+        if ctx.task_id is not None:
+            useful = _useful_count(ctx.engine)
             try:
-                snap = capture.snapshot() if capture is not None else None
+                snap = ctx.capture.snapshot()
                 if is_abort:
-                    client.task_aborted(
-                        task_id,
+                    ctx.client.task_aborted(
+                        ctx.task_id,
                         reason=f"Executor received signal {signum} (cancelled)",
                         log=snap,
                         concrete_scenarios_executed=useful,
                     )
                 else:
-                    client.task_failed(
-                        task_id,
-                        reason=(
-                            f"Executor received signal {signum}"
-                            " (SLURM time limit)"
-                        ),
+                    ctx.client.task_failed(
+                        ctx.task_id,
+                        reason=f"Executor received signal {signum} (SLURM time limit)",
                         log=snap,
                         concrete_scenarios_executed=useful,
                     )
             except Exception as exc:
                 logger.error(f"lifecycle call during signal handling: {exc}")
-        svc_mgr: ServiceManager | None = state.get("service_manager")
-        if svc_mgr is not None:
+        if ctx.service_manager is not None:
             try:
-                svc_mgr.stop_all_services()
+                ctx.service_manager.stop_all_services()
             except Exception as exc:
                 logger.error(f"service_manager stop during signal handling: {exc}")
-        # 128 + signum is the conventional exit code for "terminated by
-        # signal N" (e.g. 143 for SIGTERM, 130 for SIGINT).
         sys.exit(128 + signum)
 
     signal.signal(signal.SIGTERM, handler)
@@ -126,75 +132,41 @@ def _create_service_manager(backend: str, job_id: int) -> ServiceManager:
     raise ValueError(f"Unsupported backend: {backend}")
 
 
-def _execute_runner_task(
-    client: ManagerClient,
-    task_id: Any,
-    runner_spec: dict[str, Any],
-    capture: "LogCapture | None" = None,
-    shutdown_state: dict[str, Any] | None = None,
-) -> None:
+def _execute_runner_task(ctx: RunContext, runner_spec: dict[str, Any]) -> None:
     """Drive one task's SimulationEngine and report the terminal state.
+    Clean return -> succeeded; raise -> failed; SIGTERM/SIGINT -> aborted
+    (handled in the signal handler). `concrete_scenarios_executed` is
+    orthogonal — useful-work counter for the manager's useless-streak rule."""
 
-    task_run_status is decided by one question only: did engine.exec()
-    return cleanly?
-        exec() returns    -> task_succeeded -> task_run.completed
-        exec() raises     -> task_failed    -> task_run.failed
-        SIGTERM/SIGINT    -> task_aborted   -> task_run.aborted  (handled in
-                                               the signal handler, not here)
-
-    `concrete_scenarios_executed` is ORTHOGONAL: it reports how much
-    useful work this attempt produced and the manager uses it to decide
-    whether to retry or permanently invalidate the task (after
-    USELESS_STREAK_LIMIT consecutive runs with count 0). A run can
-    legitimately end as `failed` with a non-zero count when, for
-    example, the sampler finished 5 concretes before the 6th crashed.
-    """
-
-    def _log() -> "str | None":
-        return capture.snapshot() if capture is not None else None
-
-    engine: SimulationEngine | None = None
-
-    def _useful() -> int:
-        return engine.completed_concrete_runs if engine is not None else 0
+    task_id = ctx.task_id
+    assert task_id is not None  # main() guarantees this before calling
 
     try:
-        engine = SimulationEngine(runner_spec)
-        # Expose the engine to the SIGTERM handler so signal-triggered
-        # aborts report an accurate concrete-run count too.
-        if shutdown_state is not None:
-            shutdown_state["engine"] = engine
-        engine.exec()
+        ctx.engine = SimulationEngine(runner_spec)
+        ctx.engine.exec()
     except KeyboardInterrupt:
         logger.warning("Task execution interrupted by user.")
-        client.task_failed(
+        ctx.client.task_failed(
             task_id,
             reason="Task interrupted by user",
-            log=_log(),
-            concrete_scenarios_executed=_useful(),
+            log=ctx.capture.snapshot(),
+            concrete_scenarios_executed=_useful_count(ctx.engine),
         )
     except Exception as exc:
-        # Any exception is a failure — including route-not-found and
-        # scenario-validation errors that used to be reported as
-        # `task_invalid`. The manager decides whether to permanently
-        # invalidate the task: 10 consecutive runs with
-        # concrete_scenarios_executed == 0. A single run that managed
-        # to finish some concretes still counts as useful progress,
-        # even if a later concrete crashed with "no route found".
-        err_msg = (
-            str(exc) if isinstance(exc, RuntimeError) else f"{type(exc).__name__}: {exc}"
-        )
+        err_msg = str(exc) if isinstance(exc, RuntimeError) else f"{type(exc).__name__}: {exc}"
         logger.error(f"Task execution failed: {err_msg}")
-        client.task_failed(
+        ctx.client.task_failed(
             task_id,
             reason=err_msg,
-            log=_log(),
-            concrete_scenarios_executed=_useful(),
+            log=ctx.capture.snapshot(),
+            concrete_scenarios_executed=_useful_count(ctx.engine),
         )
     else:
         logger.info(f"Task execution succeeded for task ID: {task_id}")
-        client.task_succeeded(
-            task_id, log=_log(), concrete_scenarios_executed=_useful()
+        ctx.client.task_succeeded(
+            task_id,
+            log=ctx.capture.snapshot(),
+            concrete_scenarios_executed=_useful_count(ctx.engine),
         )
 
 
@@ -275,23 +247,17 @@ def main():
     client.fetch()  # Fetch AVs, simulators, and samplers to cache their IDs
 
     args = parse_args(client.maps, client.avs, client.simulators, client.samplers)
-    logger.remove()  # Remove default logger
-    logger.add(
-        sink=sys.stdout,
-        level=args.log_level.upper(),
-        colorize=True,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-    )
+    _setup_logging(args.log_level)
 
     # Capture everything the executor + simcore prints so we can PUT it back
     # to the task_run row and render it in the web UI.
     capture = LogCapture()
     install_log_capture(capture)
 
-    # Hook SIGTERM/SIGINT early so even a pre-claim kill (unlikely, but
-    # possible) doesn't leave a half-written row behind.
-    shutdown_state: dict[str, Any] = {"client": client, "capture": capture}
-    _install_shutdown_handler(shutdown_state)
+    # Hook SIGTERM/SIGINT early so even a pre-claim kill doesn't leave a
+    # half-written row behind.
+    ctx = RunContext(client=client, capture=capture)
+    _install_shutdown_handler(ctx)
 
     logger.debug("Starting executor...")
     logger.info(f"Arguments: {args}")
@@ -320,17 +286,15 @@ def main():
         logger.error("Claimed spec does not contain a valid task ID. Aborting.")
         return
     logger.info(f"Claimed task with ID: {task_id} (task_run #{task_run_id})")
-    shutdown_state["task_id"] = task_id
+    ctx.task_id = task_id
 
-    log_streamer: LogStreamer | None = None
     if task_run_id is not None:
-        log_streamer = LogStreamer(
+        ctx.log_streamer = LogStreamer(
             capture=capture,
             manager_url=client.manager_url,
             task_run_id=int(task_run_id),
         )
-        log_streamer.start()
-        shutdown_state["log_streamer"] = log_streamer
+        ctx.log_streamer.start()
 
     claimed_av = dict(claimed_spec.get("av", {}))
     claimed_simulator = dict(claimed_spec.get("simulator", {}))
@@ -376,10 +340,9 @@ def main():
         staged=staged,
     )
 
-    service_manager = _create_service_manager(args.backend, job_id)
-    shutdown_state["service_manager"] = service_manager
+    ctx.service_manager = _create_service_manager(args.backend, job_id)
     try:
-        started_specs = service_manager.start(
+        started_specs = ctx.service_manager.start(
             services_spec=services_spec,
             output_dir=output_dir,
         )
@@ -397,36 +360,22 @@ def main():
         )
         with open(os.path.join(output_dir, "runner_spec.json"), "w") as f:
             json.dump(runner_spec, f, indent=4)
-        logger.debug(
-            f"Runner spec available at: {os.path.join(output_dir, 'runner_spec.json')}"
-        )
+        logger.debug(f"Runner spec available at: {os.path.join(output_dir, 'runner_spec.json')}")
 
-        _execute_runner_task(
-            client=client,
-            task_id=task_id,
-            runner_spec=runner_spec,
-            capture=capture,
-            shutdown_state=shutdown_state,
-        )
+        _execute_runner_task(ctx, runner_spec)
     except Exception as exc:
         logger.error(f"Executor failed with error: {exc}")
-        if task_id is not None:
-            err_msg = f"{type(exc).__name__}: {str(exc)}"
-            engine_obj = shutdown_state.get("engine")
-            useful = (
-                int(getattr(engine_obj, "completed_concrete_runs", 0))
-                if engine_obj is not None
-                else 0
-            )
-            client.task_failed(
-                task_id, reason=err_msg, log=capture.snapshot(),
-                concrete_scenarios_executed=useful,
-            )
+        client.task_failed(
+            task_id,
+            reason=f"{type(exc).__name__}: {exc}",
+            log=capture.snapshot(),
+            concrete_scenarios_executed=_useful_count(ctx.engine),
+        )
 
     finally:
-        if log_streamer is not None:
-            log_streamer.stop()
-        service_manager.stop_all_services()
+        if ctx.log_streamer is not None:
+            ctx.log_streamer.stop()
+        ctx.service_manager.stop_all_services()
         # Reclaim disk: the staged map / scenario / config bytes can be
         # tens of MB per task and the host accumulates one .staged tree
         # per (av, sim, task, map, scenario) combo. The manager keeps
