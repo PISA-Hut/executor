@@ -62,15 +62,27 @@ class ServiceManager(ABC):
 
         runtime_envs: dict[str, int] = {"PORT": service_port}
         if bool(component_spec.get("carla_runtime", False)):
-            carla_port = None
-            for _ in range(5):
-                candidate_port = find_free_port()
-                if candidate_port is not None and candidate_port != service_port:
-                    carla_port = candidate_port
+            # CARLA needs two distinct ports per task: the simulator
+            # RPC port (CARLA_PORT) and the TrafficManager RPC port
+            # (CARLA_TM_PORT). Without a per-task TM port every CARLA
+            # task tries to bind TM on the wrapper config's default
+            # (e.g. 8000) and the second concurrent task gets
+            # "bind error" from `client.get_trafficmanager(...)`.
+            picked: list[int] = []
+            for _ in range(10):
+                if len(picked) == 2:
                     break
-            if carla_port is None:
+                candidate_port = find_free_port()
+                if (
+                    candidate_port is not None
+                    and candidate_port != service_port
+                    and candidate_port not in picked
+                ):
+                    picked.append(candidate_port)
+            if len(picked) < 2:
                 return None
-            runtime_envs["CARLA_PORT"] = carla_port
+            runtime_envs["CARLA_PORT"] = picked[0]
+            runtime_envs["CARLA_TM_PORT"] = picked[1]
 
         if bool(component_spec.get("ros_runtime", False)):
             runtime_envs["ROS_DOMAIN_ID"] = self._resolve_ros_domain_id()
