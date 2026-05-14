@@ -300,6 +300,17 @@ def main():
     claimed_simulator = dict(claimed_spec.get("simulator", {}))
     claimed_map = dict(claimed_spec.get("map", {}))
     claimed_scenario = dict(claimed_spec.get("scenario", {}))
+    # Strict: missing `monitor` or its `id` means the manager
+    # pre-dates the m20260513 schema; surface that as the
+    # likely cause instead of a generic KeyError downstream.
+    claimed_monitor = claimed_spec.get("monitor")
+    if not isinstance(claimed_monitor, dict) or "id" not in claimed_monitor:
+        raise RuntimeError(
+            "Claim response missing `monitor.id` — manager/executor version "
+            "skew (manager older than m20260513 migration?)."
+        )
+    claimed_monitor = dict(claimed_monitor)
+
     scenario_title = claimed_scenario.get("title", "unknown_scenario")
     logger.info(f"Claimed scenario: {scenario_title}")
 
@@ -316,10 +327,7 @@ def main():
         json.dump(claimed_spec, f, indent=4)
 
     staged_root = Path(output_dir) / ".staged"
-    # Monitor is required by the manager (m20260513 migration); claim
-    # responses always include it. KeyError here means the manager
-    # is older than this executor — surface as a configuration error.
-    claimed_monitor = claimed_spec["monitor"]
+
     staged = stage_task_inputs(
         manager_url=client.manager_url,
         stage_root=staged_root,
@@ -358,9 +366,10 @@ def main():
             job_id=job_id,
             output_dir=output_dir,
         )
-        with open(os.path.join(output_dir, "runner_spec.json"), "w") as f:
+        runner_spec_path = os.path.join(output_dir, "runner_spec.json")
+        with open(runner_spec_path, "w") as f:
             json.dump(runner_spec, f, indent=4)
-        logger.debug(f"Runner spec available at: {os.path.join(output_dir, 'runner_spec.json')}")
+        logger.debug(f"Runner spec available at: {runner_spec_path}")
 
         _execute_runner_task(ctx, runner_spec)
     except Exception as exc:
