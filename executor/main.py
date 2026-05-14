@@ -352,7 +352,10 @@ def main():
         json.dump(claimed_spec, f, indent=4)
 
     staged_root = Path(output_dir) / ".staged"
-    claimed_monitor = claimed_spec.get("monitor")
+    # Monitor is required by the manager (m20260513 migration); claim
+    # responses always include it. KeyError here means the manager
+    # is older than this executor — surface as a configuration error.
+    claimed_monitor = claimed_spec["monitor"]
     staged = stage_task_inputs(
         manager_url=client.manager_url,
         stage_root=staged_root,
@@ -361,7 +364,7 @@ def main():
         av_id=int(claimed_av["id"]),
         simulator_id=int(claimed_simulator["id"]),
         sampler_id=int(claimed_spec.get("sampler", {}).get("id", 0)),
-        monitor_id=int(claimed_monitor["id"]) if claimed_monitor else None,
+        monitor_id=int(claimed_monitor["id"]),
     )
     logger.debug(f"Staged inputs under {staged_root}")
 

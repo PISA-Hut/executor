@@ -27,20 +27,6 @@ class StagedPaths:
     monitor_config: Path
 
 
-# Default simcore monitor config bundled with the executor so we don't need
-# another `PISA_DATA_DIR/config/monitor/*.yaml` on disk. Single timeout
-# root keeps Monitor happy (it rejects empty-children composites).
-DEFAULT_MONITOR_YAML = """\
-condition:
-  type: or
-  name: default
-  children:
-    - type: timeout
-      name: scenario-timeout
-      timeout_ms: 60000
-"""
-
-
 def _safe_dest(base_dir: Path, rel: str) -> Path:
     """Return ``base_dir / rel``, raising ``ValueError`` on path traversal.
 
@@ -80,7 +66,7 @@ def stage_task_inputs(
     av_id: int,
     simulator_id: int,
     sampler_id: int,
-    monitor_id: Optional[int] = None,
+    monitor_id: int,
     timeout: int = 60,
 ) -> StagedPaths:
     """Download everything the task needs into `stage_root`.
@@ -168,31 +154,18 @@ def stage_task_inputs(
             else:
                 raise
 
+    # Monitor is required since the manager m20260513 migration.
+    # A 404 on /config means the operator created the monitor row
+    # but never uploaded its YAML — that's a configuration error,
+    # not a recoverable case (no implicit fallback any more), so
+    # let the HTTPError bubble up and fail the task.
     monitor_config = config_dir / "monitor.yaml"
-    if monitor_id:
-        # Task pinned a monitor — fetch its bytes from the manager.
-        # Fallback to the bundled default only when the monitor row
-        # exists but has no config bytes (404 on /config), so a
-        # half-configured monitor doesn't silently disable the
-        # timeout safety net.
-        try:
-            _fetch_into(
-                session,
-                f"{manager_url}/monitor/{monitor_id}/config",
-                monitor_config,
-                timeout,
-            )
-        except requests.HTTPError as exc:
-            status = exc.response.status_code if exc.response is not None else None
-            if status == 404:
-                logger.warning(
-                    f"Monitor {monitor_id} has no config bytes; using bundled default"
-                )
-                monitor_config.write_text(DEFAULT_MONITOR_YAML, encoding="utf-8")
-            else:
-                raise
-    else:
-        monitor_config.write_text(DEFAULT_MONITOR_YAML, encoding="utf-8")
+    _fetch_into(
+        session,
+        f"{manager_url}/monitor/{monitor_id}/config",
+        monitor_config,
+        timeout,
+    )
 
     return StagedPaths(
         xodr_dir=xodr_dir.resolve(),
